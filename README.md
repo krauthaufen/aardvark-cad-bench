@@ -135,6 +135,60 @@ The crossover where per-change tracking stops paying sits between 5 % and
 
 ![n=1000 grid](results/n1000-grid.png)
 
+## .NET bench (classic Aardvark.Rendering, no vsync)
+
+`dotnet/` runs the same sweep one level lower on classic
+**Aardvark.Rendering** (.NET, GL backend): no window, no Aardium
+presentation (which blits every frame through a memory-mapped file) —
+the scene is compiled to an `IRenderTask` and explicitly `Run()` into an
+**offscreen FBO** every frame. GPU time comes from an `ITimeQuery`
+passed via `RenderToken`; its blocking `GetResult` doubles as the frame
+sync, so `frameMs` is true end-to-end frame cost, not a vsync-clamped
+rAF delta. Same converted assets, same edit pattern, extra `gpuMs`
+CSV column.
+
+```bash
+cd dotnet
+DISPLAY=:0 dotnet run -c Release -- --model geforce-parts --out ../results/dotnet-geforce-parts.csv
+dotnet run -c Release -- --n 20000 --out ../results/dotnet-n20000.csv
+```
+
+Results (medians; RTX 5060, GL):
+
+| model | n | metric | k=1 | k=100 | k=1000 | k=10000 | k=n |
+|---|---|---|---|---|---|---|---|
+| geforce-parts | 68 452 | frame ms | 33.0 | 32.9 | 38.1 | 92.2 | 367 |
+| | | edit ms | 0.02 | 0.27 | 2.7 | 34.3 | 213 |
+| | | gpu ms | 32.2 | 31.9 | 34.2 | 55.2 | 148 |
+| worldcar | 1 811 | frame ms | 1.2 | 1.9 | 4.2 | — | 5.8 |
+| synthetic | 20 000 | frame ms | 3.2 | 3.3 | 8.4 | 58.9 | 104 |
+
+What the uncapped numbers add to the story:
+
+- **Sparse edits are even cheaper on .NET**: ~2.7 µs/edit
+  (k=1000 → 2.7 ms) vs ~7 µs/edit in the JS port — and a k=1 edit
+  is 20 µs end to end.
+- **Object count, not triangle count, is the GPU-side cost driver**
+  for classic per-draw GL: worldcar's 2.33 M triangles in 1 811 draws
+  render in 0.7 ms GPU, while geforce-parts' 0.25 M triangles in
+  68 452 draws take 32 ms GPU (~0.5 µs/draw). This is precisely the
+  CAD many-small-parts problem the paper targets — and the
+  wombat/WebGPU heap renderer (MDI, one indirect dispatch) renders
+  the same 68 k objects inside a 16.7 ms vsync budget where classic
+  GL needs 33 ms.
+- The k=N reference on .NET: 367 ms (213 edit + 148 GPU) vs 600 ms
+  in the browser — FSharp.Data.Adaptive propagation is ~2.6× faster
+  on .NET than the JS port.
+- First frame (compile + upload) at 68 k objects: 23.5 s on classic
+  Aardvark's per-RO compile path vs ~1 s scene build in wombat —
+  another place where naive-input scale stresses paths tuned for
+  smaller object counts.
+
+Timing-comparison caveat: the web bench's `frameMs` is a rAF delta —
+WebGPU work is submitted asynchronously and vsync clamps from below, so
+browser frame numbers are not directly comparable to the .NET
+blocking-query numbers; the .NET column is the honest hardware cost.
+
 ## Status / caveats (v1)
 
 - Frame time via rAF deltas — no GPU timestamps yet (WebGPU

@@ -8,17 +8,27 @@ for path in sys.argv[1:]:
     with open(path) as f:
         for r in csv.DictReader(f):
             rows[(int(r["nParts"]), int(r["k"]))].append(
-                (float(r["frameMs"]), float(r["editMs"])))
+                (float(r["frameMs"]), float(r["editMs"]),
+                 float(r["gpuMs"]) if r.get("gpuMs") else None))
 
-print(f"{'n':>7} {'k':>7} {'frames':>6} {'frame med':>10} {'frame p90':>10} {'edit med':>9} {'edit p90':>9}")
-out = [("nParts","k","frames","frameMedMs","frameP90Ms","editMedMs","editP90Ms")]
+has_gpu = any(x[2] is not None for xs in rows.values() for x in xs)
+gpu_hdr = f" {'gpu med':>9}" if has_gpu else ""
+print(f"{'n':>7} {'k':>7} {'frames':>6} {'frame med':>10} {'frame p90':>10} {'edit med':>9} {'edit p90':>9}{gpu_hdr}")
+out = [("nParts","k","frames","frameMedMs","frameP90Ms","editMedMs","editP90Ms")
+       + (("gpuMedMs",) if has_gpu else ())]
 def p90(xs):
     xs = sorted(xs); return xs[min(len(xs)-1, int(0.9*len(xs)))]
 for (n, k) in sorted(rows):
     fr = [x[0] for x in rows[(n,k)]]; ed = [x[1] for x in rows[(n,k)]]
+    gp = [x[2] for x in rows[(n,k)] if x[2] is not None]
     line = (n, k, len(fr), round(statistics.median(fr),3), round(p90(fr),3),
             round(statistics.median(ed),3), round(p90(ed),3))
+    gpu_txt = ""
+    if has_gpu:
+        gmed = round(statistics.median(gp), 3) if gp else ""
+        line += (gmed,)
+        gpu_txt = f" {gmed:>9}"
     out.append(line)
-    print(f"{n:>7} {k:>7} {len(fr):>6} {statistics.median(fr):>10.2f} {p90(fr):>10.2f} {statistics.median(ed):>9.2f} {p90(ed):>9.2f}")
+    print(f"{n:>7} {k:>7} {len(fr):>6} {statistics.median(fr):>10.2f} {p90(fr):>10.2f} {statistics.median(ed):>9.2f} {p90(ed):>9.2f}{gpu_txt}")
 with open("results/summary.csv","w") as f:
     w = csv.writer(f); w.writerows(out)

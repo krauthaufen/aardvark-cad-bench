@@ -8,3 +8,5 @@ assets/*.csf
 assets/geforce/
 assets/worldcar/
 assets/geforce-parts/
+dotnet/bin/
+dotnet/obj/

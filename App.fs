@@ -280,6 +280,60 @@ let private advanceStep () =
 [<Emit("requestAnimationFrame($0)")>]
 let private raf (_cb: float -> unit) : unit = jsNative
 
+// ─── Uncapped mode (?uncapped=1) ──────────────────────────────────────
+// wombat.rendering ≥0.19.19: the render loop schedules via setTimeout
+// instead of rAF (no vsync) and bumps __wombatFrameCount after each
+// frame's onSubmittedWorkDone pacer resolves (GPU complete). The
+// driver below serializes edit → frame-complete → next edit, so
+// frameMs is true end-to-end frame cost.
+
+[<Emit("window.__wombatUncappedRenderLoop = true")>]
+let private enableUncappedLoop () : unit = jsNative
+[<Emit("window.__wombatFrameCount || 0")>]
+let private frameCount () : int = jsNative
+// setTimeout(0) is clamped to 4ms after nesting depth 5 (Chrome);
+// MessageChannel.postMessage is the unthrottled macrotask primitive.
+[<Emit("(window.__benchDefer ??= (() => { const mc = new MessageChannel(); let q = []; mc.port1.onmessage = () => { const c = q; q = []; for (const f of c) f(); }; return f => { q.push(f); mc.port2.postMessage(0); }; })())($0)")>]
+let private defer (_f: unit -> unit) : unit = jsNative
+
+// one-shot frame-completion hook (wombat.rendering ≥0.19.22): fires
+// after the next frame's pacer (onSubmittedWorkDone) resolves — no
+// poll-spinning, which would compete with the loop's own scheduling.
+[<Emit("window.__wombatOnFrame = $0")>]
+let private onNextFrame (_f: unit -> unit) : unit = jsNative
+
+let private uncapped = paramInt "uncapped" 0 = 1
+let mutable private lastEditMs = 0.0
+
+let rec private utick () =
+    if finished then () else
+    if stepIdx < 0 then advanceStep ()
+    else
+        match phase with
+        | Warmup r ->
+            if r <= 0 then phase <- Measure framesPerStep
+            else phase <- Warmup (r - 1)
+        | Measure r ->
+            if r <= 0 then advanceStep ()
+            else phase <- Measure (r - 1)
+    if not finished then
+        let k = currentK ()
+        let t0 = nowMs ()
+        // register the completion hook BEFORE the edit: the loop is
+        // idle until our transact marks it, so the next completed
+        // frame is exactly the one containing this edit batch.
+        onNextFrame (fun () ->
+            let frameMs = nowMs () - t0
+            (match phase with
+             | Measure _ ->
+                 csv.AppendLine(sprintf "%d,%d,%.3f,%.3f" nParts k frameMs lastEditMs) |> ignore
+             | _ -> ())
+            defer utick)
+        let tEdit0 = nowMs ()
+        transact (fun () ->
+            for _ in 1 .. k do editPart (rnd nParts))
+        lastEditMs <- nowMs () - tEdit0
+
 /// Called once per animation frame (rAF). Performs the next edit batch
 /// (which marks the scene and schedules a render) and records timings
 /// for measure-phase frames.
@@ -348,6 +402,11 @@ let app : App = fun ctx ->
 
 [<EntryPoint>]
 let main _ =
+    if uncapped then enableUncappedLoop ()
+    let startDriver () =
+        // give the mounted scene one settle frame, then drive the sweep
+        if uncapped then defer (fun () -> defer utick)
+        else raf tick
     if not (isNull model) then
         let tFetch = nowMs ()
         thenDo (fetchModel ("/assets/" + model + "/")) (fun loaded ->
@@ -356,12 +415,10 @@ let main _ =
             initModel a.[0] a.[1] a.[2] a.[3]
             let tRun = nowMs ()
             Shell.runApp app |> ignore
-            let tDone = nowMs ()
-            JS.console.log ("phase-times", {| fetch = tInit - tFetch; init = tRun - tInit; runApp = tDone - tRun |})
-            raf (fun _ -> JS.console.log ("first-frame", nowMs () - tDone))
-            raf tick)
+            JS.console.log ("phase-times", {| fetch = tInit - tFetch; init = tRun - tInit; runApp = nowMs () - tRun |})
+            startDriver ())
     else
         initSynthetic ()
         Shell.runApp app |> ignore
-        raf tick
+        startDriver ()
     0

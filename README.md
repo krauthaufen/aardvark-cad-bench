@@ -199,10 +199,49 @@ What the uncapped numbers show:
 matches the Vulkan classic numbers closely: 33 ms k=1 frame at 68 k,
 367 ms k=N.)
 
-Timing-comparison caveat: the web bench's `frameMs` is a rAF delta —
-WebGPU work is submitted asynchronously and vsync clamps from below, so
-browser frame numbers are not directly comparable to the .NET
-blocking-query numbers; the .NET columns are the honest hardware cost.
+Timing-comparison caveat: the web bench's default `frameMs` is a rAF
+delta — WebGPU work is submitted asynchronously and vsync clamps from
+below, so those numbers are not directly comparable to the .NET
+blocking-query numbers. Use `?uncapped=1` (below) for honest browser
+numbers.
+
+## Uncapped WebGPU mode (`?uncapped=1`)
+
+With `wombat.rendering ≥ 0.19.22` the render loop can run **without
+vsync**: `?uncapped=1` sets `__wombatUncappedRenderLoop` (frames
+scheduled via MessageChannel — `setTimeout(0)` clamps to 4 ms in
+Chrome — and paced by `onSubmittedWorkDone`, queue depth 1), and the
+driver serializes edit → frame-complete → next edit through the
+one-shot `__wombatOnFrame` hook. `frameMs` is then true end-to-end
+frame cost including GPU completion, the browser equivalent of the
+.NET blocking-query numbers.
+
+Uncapped results (medians, frame / edit ms):
+
+| model | n | k=1 | k=1000 | k=n |
+|---|---|---|---|---|
+| geforce-parts | 68 452 | **3.7** / 0.1 | 32.9 / 6.9 | 614 / 533 |
+| synthetic | 20 000 | **3.7** / 0.0 | 16.8 / 6.3 | 176 / 147 |
+| worldcar | 1 811 | **3.7** / 0.0 | 10.3 / 5.6 | 16.4 / 10.3 |
+
+- **The sparse-edit frame costs 3.7 ms at EVERY scene size** — 1 811,
+  20 000 and 68 452 objects all render in the same time when one part
+  changes. That's the change-size-not-scene-size claim measured
+  end-to-end in the browser (one MDI dispatch; the 3.7 ms floor is
+  dominated by the WebGPU IPC/present round-trip, JS encode is
+  ~0.5 ms/frame).
+- Cross-engine: wombat 3.7 ms vs .NET Vulkan heap 0.74 ms (≈5×
+  browser tax) vs .NET Vulkan classic per-draw 31.7 ms — the
+  browser MDI path beats native classic per-draw by ~8× on
+  sparse edits at 68 k objects.
+- At k = N the vsync-clamped and uncapped numbers agree (614 vs
+  600 ms) — vsync was irrelevant there all along.
+- Render-side cost rises with the number of *changed* objects
+  (68 452 objects: 16 ms at k=3 → 28 ms at k=316, beyond the edit
+  cost itself) — consistent with per-dirty-uniform `writeBuffer`
+  IPC overhead (~30–90 µs/call); dirty-range coalescing in the
+  uniform-pool flush is the obvious engine follow-up (untested
+  hypothesis, needs instrumentation).
 
 ## Status / caveats (v1)
 

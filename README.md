@@ -20,23 +20,39 @@ log-spaced k ∈ {1, 3, 10, …, N} and records, per frame:
 The **k = N** step is the *"everything, all the time"* reference: the cost a
 two-bucket engine pays at any density for content it classified as dynamic.
 
-Assembly statistics modeled on the NVIDIA nvpro-samples **GeForce board**
-cadscene (`assets/geforce.csf`, fetched from NVIDIA's server): 110 unique
-geometries → 5 004 instances → 68 452 drawable parts, ~2.6× geometric
-instancing, max 800 instances of one geometry. `tools/csf_stats.py` extracts
-these numbers; a CSF→scene loader (real-model mode) is the planned next step.
+Two modes:
+
+- **synthetic** (default, `?n=N`) — a grid of N boxes, arbitrary scale.
+- **`?model=geforce`** — the real NVIDIA nvpro-samples **GeForce board**
+  cadscene (`assets/geforce.csf`, fetched from NVIDIA's server): 110 unique
+  geometries → 2 497 drawable nodes (5 004 hierarchy nodes, 68 452 parts,
+  ~2.6× geometric instancing, max 800 instances of one geometry), 218 604
+  vertices / 248 569 triangles. `tools/csf_convert.py` converts the CSF
+  into web-loadable buffers (`assets/geforce/`); every drawable node gets
+  its own `cval<Trafo3d>` + majority-material color. Note the CSF's
+  baked `worldTM` block is uninitialized in this asset — the converter
+  recomputes world transforms by walking the hierarchy (as the nvpro
+  loader does).
+
+![GeForce board, 2497 individually-editable nodes](results/geforce-board.png)
 
 ## Run
 
 ```bash
 dotnet tool restore && npm install
+# geforce mode: fetch + convert the cadscene once
+curl -o assets/geforce.csf.gz https://developer.download.nvidia.com/ProGraphics/nvpro-samples/geforce.csf.gz
+gunzip assets/geforce.csf.gz
+python3 tools/csf_convert.py assets/geforce.csf assets/geforce
 npm run dev          # vite on :5173
 # browser: http://localhost:5173/?n=5004&frames=60&warmup=20
-# headless: node driver/run.cjs "http://localhost:5173/?n=5004" results/n5004
+#          http://localhost:5173/?model=geforce
+# headless: node driver/run.cjs "http://localhost:5173/?model=geforce" results/geforce
 python3 tools/aggregate.py results/*.csv
 ```
 
-URL params: `n` (parts), `frames` (measured frames per step), `warmup`.
+URL params: `n` (parts, synthetic), `model=geforce`, `frames` (measured
+frames per step), `warmup`.
 Results land in `window.__benchCsv` / `__benchMeta` (`__benchDone` flags
 completion); the driver saves CSV + meta + screenshot.
 
@@ -67,6 +83,17 @@ completion); the driver saves CSV + meta + screenshot.
 | 5 004 — frame ms | 16.6 | 16.8 | 16.6 | 32.3 | 49.9 |
 | 20 000 — edit ms | 0.1 | 1.0 | 10.7 | 37.0 | 207.3 |
 | 20 000 — frame ms | 16.7 | 16.8 | 16.5 | 41.8 | 215.6 |
+
+Real model (`?model=geforce`, 2 497 nodes / 248 k triangles):
+
+| | k=1 | k=100 | k=1000 | k=2497 ("everything") |
+|---|---|---|---|---|
+| edit ms (median) | 0.1 | 0.8 | 6.2 | 16.5 |
+| frame ms (median) | 16.7 | 16.8 | 16.7 | 18.1 |
+
+The real assembly stays vsync-bound at every density (n is small enough
+that even k = N propagation fits the frame budget at ~10 µs/edit); the
+165× edit-cost span between k = 1 and k = N matches the synthetic shape.
 
 Reading: at 20 000 parts the "everything, all the time" reference costs
 215 ms/frame (≈4.6 fps); sparse edits cost 0.1 ms and the frame stays

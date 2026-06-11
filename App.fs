@@ -23,9 +23,11 @@ open Aardvark.Portable.Shell.Web
 // Output: window.__benchCsv (one row per frame) + __benchDone flag;
 // the driver script collects them.
 //
-// Assembly statistics are modeled loosely on the NVIDIA cadscene
-// GeForce board (110 unique geometries → 5004 instances → 68k parts):
-// few archetypes, heavy repetition, per-part editability.
+// Two modes:
+//   ?n=5004           synthetic grid of boxes (default)
+//   ?model=geforce    the real NVIDIA cadscene GeForce board (110
+//                     unique geometries → 2497 drawable nodes, 248k
+//                     triangles), converted by tools/csf_convert.py.
 // ─────────────────────────────────────────────────────────────────────
 
 [<Emit("performance.now()")>]
@@ -63,40 +65,46 @@ let private rnd (bound: int) : int =
 
 // ─── Parameters ───────────────────────────────────────────────────────
 
-let private nParts        = paramInt "n" 5004          // homage to the GeForce board node count
+let private model         = queryParam "model"          // "geforce" → real CSF assembly
 let private framesPerStep = paramInt "frames" 60
 let private warmupFrames  = paramInt "warmup" 20
 
+// nParts is fixed by the model in geforce mode; assigned by init below.
+let mutable private nParts = paramInt "n" 5004
+
 /// Log-spaced sweep: 1, 3, 10, 32, … up to and including N.
-let private sweep =
+let private mkSweep (n: int) =
     let steps =
         [ 0 .. 12 ]
         |> List.map (fun i -> System.Math.Pow(10.0, float i / 2.0) |> round |> int)
-        |> List.filter (fun k -> k >= 1 && k < nParts)
+        |> List.filter (fun k -> k >= 1 && k < n)
         |> List.distinct
-    steps @ [ nParts ]
+    steps @ [ n ]
+let mutable private sweep : int list = []
 
-// ─── Assembly ─────────────────────────────────────────────────────────
+// ─── Assembly (mode-independent core) ─────────────────────────────────
 
-// Per-part adaptive transform + a base angle (edits rotate the part
-// in place). Placement is baked into the SAME trafo (rotation THEN
-// translation, Aardvark's flipped `*`): nested Sg.Trafo scopes
-// OVERRIDE rather than compose in prerelease0003 (see README).
-let private side = System.Math.Ceiling(System.Math.Sqrt(float nParts)) |> int
-let private partPos : V3d[] =
-    Array.init nParts (fun i ->
-        V3d.create (float (i % side) * 1.2) (float (i / side) * 1.2) 0.0)
-let private partTrafos : cval<Trafo3d>[] =
-    Array.init nParts (fun i -> cval (Trafo3d.translation partPos.[i]))
-let private partAngles : float[] = Array.zeroCreate nParts
-// (debug exports filled in `scene` below)
+// Per-part adaptive transform = (edit rotation) ∘ (base placement),
+// composed into ONE trafo (nested Sg.Trafo scopes compose in reverse
+// order in prerelease0003 — see README). Both modes fill baseTrafos;
+// edits are identical: rotate the part in place about its own origin.
+let mutable private baseTrafos : Trafo3d[] = [||]
+let mutable private partTrafos : cval<Trafo3d>[] = [||]
+let mutable private partAngles : float[] = [||]
+
+let private initTrafos (bases: Trafo3d[]) =
+    nParts <- bases.Length
+    sweep <- mkSweep nParts
+    baseTrafos <- bases
+    partTrafos <- bases |> Array.map cval
+    partAngles <- Array.zeroCreate nParts
 
 /// One edit = rotate part i in place. Cost shape matches a CAD nudge.
 let private editPart (i: int) =
     partAngles.[i] <- partAngles.[i] + 0.05
     partTrafos.[i].Value <-
         Trafo3d.rotation (V3d.create 0.0 0.0 1.0) partAngles.[i]
-        * Trafo3d.translation partPos.[i]
+        * baseTrafos.[i]
 
 // ─── Shader: ModelViewProjTrafo + lambert ─────────────────────────────
 // The published DefaultSurfaces.trafo (prerelease0003) is CAMERA-ONLY
@@ -128,34 +136,112 @@ let private benchFragment (f: FragmentInput) =
         let n        = Vec.normalize f.Normal
         let lightDir = Vec.normalize (V3f (0.5f, 1.0f, 0.4f))
         let lambert  = max 0.2f (Vec.dot n lightDir)
-        return { Color = V4f (0.62f * lambert, 0.68f * lambert, 0.78f * lambert, 1.0f) }
+        let tint : V4f = uniform?Tint
+        return { Color = V4f (tint.X * lambert, tint.Y * lambert, tint.Z * lambert, 1.0f) }
     }
 
 let private benchEffect : Effect =
     Effect.compose [ Effect.ofFunction benchVertex
                      Effect.ofFunction benchFragment ]
 
-let private scene : ISceneNode =
-    // Few archetypes, heavy repetition — the GeForce-board shape. One
-    // shared geometry; per-part placement via scene-graph composition
-    // (translate ∘ scale ∘ adaptive-rotation), no instancing hints.
-    // NOTE: per-part leaf; ONE Sg.Trafo per part carrying placement +
-    // rotation (nested trafo scopes override in prerelease0003).
+// Scene + camera, assigned by the mode init before runApp.
+let mutable private sceneRoot : ISceneNode = Unchecked.defaultof<_>
+let mutable private camCenter = V3d.create 0.0 0.0 0.0
+let mutable private camDistance = 10.0
+
+// ─── Synthetic mode: grid of boxes ────────────────────────────────────
+
+let private initSynthetic () =
+    let n = nParts
+    let side = System.Math.Ceiling(System.Math.Sqrt(float n)) |> int
+    let partPos =
+        Array.init n (fun i ->
+            V3d.create (float (i % side) * 1.2) (float (i / side) * 1.2) 0.0)
+    initTrafos (partPos |> Array.map Trafo3d.translation)
     let parts =
-        List.init nParts (fun i ->
+        List.init n (fun i ->
             sg {
                 Sg.Trafo (partTrafos.[i] :> aval<_>)
                 Sg.Adapter (Primitives.box ())
             })
-    let root =
+    sceneRoot <-
+        sg {
+            Sg.Effect benchEffect
+            Sg.Uniform ("Tint", box (V4f (0.62f, 0.68f, 0.78f, 1.0f)))
+            parts
+        }
+    let c = System.Math.Sqrt(float n) * 0.6
+    camCenter <- V3d.create c c 0.0
+    camDistance <- System.Math.Sqrt(float n) * 1.8
+
+// ─── GeForce mode: real CSF assembly (converted by tools/csf_convert) ─
+
+[<Emit("Promise.all(['manifest.json','positions.bin','normals.bin','indices.bin'].map((f,i) => fetch($0+f).then(r => i===0 ? r.json() : r.arrayBuffer())))")>]
+let private fetchModel (_baseUrl: string) : obj = jsNative
+
+[<Emit("$0.then($1)")>]
+let private thenDo (_p: obj) (_f: obj -> unit) : unit = jsNative
+
+// copy `count` f32s from src ArrayBuffer at byteOff into dst ArrayBuffer
+[<Emit("new Float32Array($0).set(new Float32Array($1, $2, $3))")>]
+let private fillF32 (_dst: obj) (_src: obj) (_byteOff: int) (_count: int) : unit = jsNative
+
+// fresh-buffer u32 copy (a view would alias the whole shared buffer)
+[<Emit("new Uint32Array($0, $1, $2).slice()")>]
+let private sliceU32 (_src: obj) (_byteOff: int) (_count: int) : uint32[] = jsNative
+
+// Dynamic-access helpers live in a nested module: JsInterop's `?`
+// operator must NOT leak into shader-DSL scope (it shadows uniform?X).
+module private Csf =
+    open Fable.Core.JsInterop
+
+    [<Import("M44d", "@aardworx/wombat.base")>]
+    let M44dJs : obj = jsNative
+    [<Import("Trafo3d", "@aardworx/wombat.base")>]
+    let Trafo3dJs : obj = jsNative
+    // row-major float16 → Trafo3d (fromArray/fromMatrix exist in JS only)
+    let trafoOfRowMajor (a: float[]) : Trafo3d =
+        unbox (Trafo3dJs?fromMatrix(M44dJs?fromArray(a)))
+
+    type Geom = { v0: int; vn: int; i0: int; ic: int }
+    type Node = { g: int; c: float[]; tm: float[] }
+    let geoms  (m: obj) : Geom[]  = unbox m?geoms
+    let nodes  (m: obj) : Node[]  = unbox m?nodes
+    let center (m: obj) : float[] = unbox m?center
+    let radius (m: obj) : float   = unbox m?radius
+
+let private initGeforce (manifest: obj) (pos: obj) (nrm: obj) (idx: obj) =
+    // 110 shared IndexedGeometry slices out of the concatenated buffers
+    let geometries =
+        Csf.geoms manifest |> Array.map (fun g ->
+            let p = V3fArray g.vn
+            fillF32 p.Buffer pos (g.v0 * 12) (g.vn * 3)
+            let n = V3fArray g.vn
+            fillF32 n.Buffer nrm (g.v0 * 12) (g.vn * 3)
+            { IndexedGeometry.empty with
+                Positions = p
+                Normals   = Some n
+                Indices   = Some (sliceU32 idx (g.i0 * 4) g.ic) })
+    let nodes = Csf.nodes manifest
+    initTrafos (nodes |> Array.map (fun n -> Csf.trafoOfRowMajor n.tm))
+    // one leaf per drawable node — naive input, no instancing hints
+    let parts =
+        nodes
+        |> Array.mapi (fun i n ->
+            sg {
+                Sg.Trafo (partTrafos.[i] :> aval<_>)
+                Sg.Uniform ("Tint", box (V4f (float32 n.c.[0], float32 n.c.[1], float32 n.c.[2], 1.0f)))
+                Sg.Adapter geometries.[n.g]
+            })
+        |> Array.toList
+    sceneRoot <-
         sg {
             Sg.Effect benchEffect
             parts
         }
-    let dbgIdx = min 10 (nParts - 1)
-    setDbg {| pos10 = box partPos.[dbgIdx]; trafo10 = box partTrafos.[dbgIdx].Value
-              part10 = box (List.item dbgIdx parts); root = box root |}
-    root
+    let ctr = Csf.center manifest
+    camCenter <- V3d.create ctr.[0] ctr.[1] ctr.[2]
+    camDistance <- Csf.radius manifest * 3.0
 
 // ─── Sweep driver (runs on the render-feedback loop) ─────────────────
 
@@ -224,15 +310,18 @@ let rec private tick (_t: float) =
 
 let app : App = fun ctx ->
     ctx.SetTitle "aardvark-cad-bench"
-    setMeta (sprintf "{\"nParts\":%d,\"framesPerStep\":%d,\"sweep\":[%s],\"startupMs\":%.1f}"
+    setMeta (sprintf "{\"nParts\":%d,\"framesPerStep\":%d,\"model\":\"%s\",\"sweep\":[%s],\"startupMs\":%.1f}"
                 nParts framesPerStep
+                (if isNull model then "synthetic" else model)
                 (sweep |> List.map string |> String.concat ",") (nowMs () - t0))
 
     let cam =
         OrbitController.attach
             { OrbitController.defaults with
-                InitialCenter   = V3d.create (System.Math.Sqrt(float nParts) * 0.6) (System.Math.Sqrt(float nParts) * 0.6) 0.0
-                InitialDistance = System.Math.Sqrt(float nParts) * 1.8 }
+                InitialCenter   = camCenter
+                InitialDistance = camDistance
+                Near            = camDistance * 0.01
+                Far             = camDistance * 100.0 }
             ctx.Window.Size
 
     div {
@@ -242,7 +331,7 @@ let app : App = fun ctx ->
             cam.Attributes
             cam.Camera
             cam.Frustum
-            scene
+            sceneRoot
         }
         div {
             Dom.Style "position:absolute; top:1rem; left:1rem; color:#eee; font-family:monospace; background:rgba(0,0,0,0.5); padding:0.6rem 0.9rem; border-radius:0.4rem"
@@ -253,6 +342,14 @@ let app : App = fun ctx ->
 
 [<EntryPoint>]
 let main _ =
-    Shell.runApp app |> ignore
-    raf tick
+    if model = "geforce" then
+        thenDo (fetchModel "/assets/geforce/") (fun loaded ->
+            let a = unbox<obj[]> loaded
+            initGeforce a.[0] a.[1] a.[2] a.[3]
+            Shell.runApp app |> ignore
+            raf tick)
+    else
+        initSynthetic ()
+        Shell.runApp app |> ignore
+        raf tick
     0

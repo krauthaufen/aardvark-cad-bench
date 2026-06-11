@@ -20,30 +20,46 @@ log-spaced k ∈ {1, 3, 10, …, N} and records, per frame:
 The **k = N** step is the *"everything, all the time"* reference: the cost a
 two-bucket engine pays at any density for content it classified as dynamic.
 
-Two modes:
+Modes:
 
 - **synthetic** (default, `?n=N`) — a grid of N boxes, arbitrary scale.
 - **`?model=geforce`** — the real NVIDIA nvpro-samples **GeForce board**
   cadscene (`assets/geforce.csf`, fetched from NVIDIA's server): 110 unique
-  geometries → 2 497 drawable nodes (5 004 hierarchy nodes, 68 452 parts,
-  ~2.6× geometric instancing, max 800 instances of one geometry), 218 604
-  vertices / 248 569 triangles. `tools/csf_convert.py` converts the CSF
-  into web-loadable buffers (`assets/geforce/`); every drawable node gets
-  its own `cval<Trafo3d>` + majority-material color. Note the CSF's
-  baked `worldTM` block is uninitialized in this asset — the converter
-  recomputes world transforms by walking the hierarchy (as the nvpro
-  loader does).
+  geometries → 2 497 drawable nodes (5 004 hierarchy nodes, ~2.6× geometric
+  instancing, max 800 instances of one geometry), 218 604 vertices /
+  248 569 triangles.
+- **`?model=geforce-parts`** — the same board at **part granularity**:
+  every node split into its CSF parts → **68 452 individually-editable
+  objects** (22 514 unique part geometries, each with its own compact
+  vertex/index buffers).
+- **`?model=worldcar`** — the nvpro **worldcar** cadscene: 576 geometries
+  → 1 811 drawable nodes, 1.82 M vertices / 2.33 M triangles (3.7 M
+  instanced) — geometrically ~9× heavier than the board.
 
-![GeForce board, 2497 individually-editable nodes](results/geforce-board.png)
+`tools/csf_convert.py` converts a CSF into web-loadable buffers. The
+input stays **truly naive**: on load every unique object gets its own
+fresh vertex/normal/index buffers (no packing, no cross-object sharing);
+instances of the same object share their geometry, nothing else. Every
+drawable object gets its own `cval<Trafo3d>` + material color. Two CSF
+gotchas the converter handles: the baked `worldTM` block is
+uninitialized in these assets (world transforms are recomputed by
+walking the hierarchy, as the nvpro loader does), and some material
+color blocks are garbage (sanitized to grey).
+
+![GeForce board at part granularity, 68 452 individually-editable objects](results/geforce-parts-board.png)
 
 ## Run
 
 ```bash
 dotnet tool restore && npm install
-# geforce mode: fetch + convert the cadscene once
-curl -o assets/geforce.csf.gz https://developer.download.nvidia.com/ProGraphics/nvpro-samples/geforce.csf.gz
-gunzip assets/geforce.csf.gz
+# model modes: fetch + convert the cadscenes once
+for m in geforce worldcar; do
+  curl -o assets/$m.csf.gz https://developer.download.nvidia.com/ProGraphics/nvpro-samples/$m.csf.gz
+  gunzip assets/$m.csf.gz
+done
 python3 tools/csf_convert.py assets/geforce.csf assets/geforce
+python3 tools/csf_convert.py assets/geforce.csf assets/geforce-parts --parts
+python3 tools/csf_convert.py assets/worldcar.csf assets/worldcar
 npm run dev          # vite on :5173
 # browser: http://localhost:5173/?n=5004&frames=60&warmup=20
 #          http://localhost:5173/?model=geforce
@@ -72,6 +88,12 @@ completion); the driver saves CSV + meta + screenshot.
   in place). The bench sidesteps it with ONE composed trafo per part.
 - `Sg.Scale(float)` calls a missing `Trafo3d.scalingUniform` (runtime
   error); avoided.
+- **The 68 k-object mode found a real engine bug** (fixed in
+  `wombat.rendering 0.19.18`, required by this bench): the heap
+  allocator's debug overlap-validation scanned every live allocation
+  per alloc — O(n²) scene build, 65 s at 20 k objects and a renderer
+  crash at 68 k. Now opt-in (`globalThis.__wombatDebugAllocOverlap`);
+  the 68 452-object scene builds in ~1 s.
 
 ## First results
 
@@ -84,16 +106,25 @@ completion); the driver saves CSV + meta + screenshot.
 | 20 000 — edit ms | 0.1 | 1.0 | 10.7 | 37.0 | 207.3 |
 | 20 000 — frame ms | 16.7 | 16.8 | 16.5 | 41.8 | 215.6 |
 
-Real model (`?model=geforce`, 2 497 nodes / 248 k triangles):
+Real models (medians over 61 frames):
 
-| | k=1 | k=100 | k=1000 | k=2497 ("everything") |
-|---|---|---|---|---|
-| edit ms (median) | 0.1 | 0.8 | 6.2 | 16.5 |
-| frame ms (median) | 16.7 | 16.8 | 16.7 | 18.1 |
+| model | n | k=1 | k=100 | k=1000 | k=10000 | k=n ("everything") |
+|---|---|---|---|---|---|---|
+| geforce — edit ms | 2 497 | 0.1 | 0.8 | 6.2 | — | 16.5 |
+| geforce — frame ms | 2 497 | 16.7 | 16.8 | 16.7 | — | 18.1 |
+| worldcar — edit ms | 1 811 | 0.1 | 0.7 | 6.0 | — | 11.1 |
+| worldcar — frame ms | 1 811 | 16.8 | 16.8 | 16.8 | — | 16.9 |
+| geforce-parts — edit ms | 68 452 | 0.1 | 0.9 | 7.6 | 80.6 | 554.4 |
+| geforce-parts — frame ms | 68 452 | 16.6 | 16.7 | 16.3 | 95.2 | 600.0 |
 
-The real assembly stays vsync-bound at every density (n is small enough
-that even k = N propagation fits the frame budget at ~10 µs/edit); the
-165× edit-cost span between k = 1 and k = N matches the synthetic shape.
+The headline is **geforce-parts**: a real CAD assembly with 68 452
+individually-editable objects stays **vsync-bound (60 fps) while editing
+up to ~1 000 parts per frame** (~1.5 % change density), while the
+"everything, all the time" reference costs 600 ms/frame (1.7 fps) — a
+**6 000× span** between sparse-edit and full-update cost, on real data.
+worldcar (2.3 M unique triangles, ~9× the board's geometry) confirms
+frame cost is geometry-independent at low k: vsync-bound at every
+density, with the same ~6–10 µs/edit propagation cost.
 
 Reading: at 20 000 parts the "everything, all the time" reference costs
 215 ms/frame (≈4.6 fps); sparse edits cost 0.1 ms and the frame stays

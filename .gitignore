@@ -6,3 +6,5 @@ dist/
 .vite/
 assets/*.csf
 assets/geforce/
+assets/worldcar/
+assets/geforce-parts/

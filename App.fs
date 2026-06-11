@@ -210,8 +210,11 @@ module private Csf =
     let center (m: obj) : float[] = unbox m?center
     let radius (m: obj) : float   = unbox m?radius
 
-let private initGeforce (manifest: obj) (pos: obj) (nrm: obj) (idx: obj) =
-    // 110 shared IndexedGeometry slices out of the concatenated buffers
+let private initModel (manifest: obj) (pos: obj) (nrm: obj) (idx: obj) =
+    // Truly naive input: every manifest geometry entry (= one unique
+    // object) gets its OWN fresh vertex/normal/index buffers out of the
+    // transport bins — no packing, no sharing. Instances of the same
+    // object share the resulting IndexedGeometry (and nothing else).
     let geometries =
         Csf.geoms manifest |> Array.map (fun g ->
             let p = V3fArray g.vn
@@ -222,7 +225,10 @@ let private initGeforce (manifest: obj) (pos: obj) (nrm: obj) (idx: obj) =
                 Positions = p
                 Normals   = Some n
                 Indices   = Some (sliceU32 idx (g.i0 * 4) g.ic) })
-    let nodes = Csf.nodes manifest
+    let nodes =
+        let all = Csf.nodes manifest
+        let lim = paramInt "limit" all.Length
+        if lim < all.Length then Array.sub all 0 lim else all
     initTrafos (nodes |> Array.map (fun n -> Csf.trafoOfRowMajor n.tm))
     // one leaf per drawable node — naive input, no instancing hints
     let parts =
@@ -342,11 +348,17 @@ let app : App = fun ctx ->
 
 [<EntryPoint>]
 let main _ =
-    if model = "geforce" then
-        thenDo (fetchModel "/assets/geforce/") (fun loaded ->
+    if not (isNull model) then
+        let tFetch = nowMs ()
+        thenDo (fetchModel ("/assets/" + model + "/")) (fun loaded ->
             let a = unbox<obj[]> loaded
-            initGeforce a.[0] a.[1] a.[2] a.[3]
+            let tInit = nowMs ()
+            initModel a.[0] a.[1] a.[2] a.[3]
+            let tRun = nowMs ()
             Shell.runApp app |> ignore
+            let tDone = nowMs ()
+            JS.console.log ("phase-times", {| fetch = tInit - tFetch; init = tRun - tInit; runApp = tDone - tRun |})
+            raf (fun _ -> JS.console.log ("first-frame", nowMs () - tDone))
             raf tick)
     else
         initSynthetic ()

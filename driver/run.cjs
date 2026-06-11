@@ -11,10 +11,10 @@ const fs = require('fs');
   const errs = [];
   p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
   p.on('pageerror', e => errs.push('PAGEERR ' + e.message));
-  await p.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
+  await p.goto(url, { waitUntil: 'networkidle0', timeout: 300000 });
 
   // wait for completion (sweep can take a while at large n)
-  const deadline = Date.now() + 10 * 60 * 1000;
+  const deadline = Date.now() + 30 * 60 * 1000;
   let done = false;
   while (Date.now() < deadline) {
     done = await p.evaluate(() => window.__benchDone === true);

@@ -1,22 +1,28 @@
 module CadBench.Program
 
 // ─────────────────────────────────────────────────────────────────────
-// Change-density benchmark on classic Aardvark.Rendering (.NET, GL).
+// Change-density benchmark on classic Aardvark.Rendering (.NET, Vulkan).
 //
 // Mirrors the web bench (../App.fs) one level lower: NO window, NO
-// Aardium/browser presentation — the scene is compiled to an
-// IRenderTask and explicitly Run() into an offscreen FBO every frame.
-// GPU time comes from an ITimeQuery passed via RenderToken (its
-// blocking GetResult doubles as the frame sync), so frameMs is true
-// end-to-end frame cost, not a vsync-clamped rAF delta.
+// Aardium/browser presentation — render objects are built directly
+// (no scene graph), compiled to an IRenderTask and explicitly Run()
+// into an offscreen FBO every frame. GPU time comes from an ITimeQuery
+// passed via RenderToken (its blocking GetResult doubles as the frame
+// sync), so frameMs is true end-to-end frame cost, not a vsync-clamped
+// rAF delta.
+//
+// --heap activates the 5.7-prerelease HEAP renderer
+// (HeapConfig.Enabled + Heap.ofRenderObjects): the N per-part render
+// objects collapse into one bucket per effect, drawn as a single
+// indirect multidraw against a shared arena through the auto-rewritten
+// shader — the .NET equivalent of the wombat/WebGPU heap path.
 //
 // Modes:
 //   --model synthetic        grid of n boxes (default, --n)
 //   --model geforce-parts    converted CSF assets (../assets/<model>/)
-//   (any converted model dir works: geforce, worldcar, geforce-parts)
 //
 // Output CSV: nParts,k,frameMs,editMs,gpuMs  (superset of the web
-// bench's columns; tools/aggregate.py ignores the extra column).
+// bench's columns; tools/aggregate.py shows gpuMs when present).
 // ─────────────────────────────────────────────────────────────────────
 
 open System
@@ -28,7 +34,32 @@ open Aardvark.Base
 open Aardvark.Rendering
 open FSharp.Data.Adaptive
 open Aardvark.SceneGraph
-open Aardvark.Application.Slim
+open FShade
+
+// ─── Shaders (HeapSpike pattern: per-draw uniforms by name; the heap
+//     rewrite redirects exactly the names passed to ofRenderObjects) ──
+
+module Shaders =
+    type Vertex =
+        { [<Position>] pos : V4f
+          [<Color>]    c   : V4f
+          [<Normal>]   n   : V3f }
+
+    let shade (v : Vertex) =
+        vertex {
+            let m   : M44f = uniform?HeapModelTrafo
+            let col : V4f  = uniform?HeapColor
+            let vp  : M44f = uniform?ViewProjTrafo
+            return { v with pos = vp * (m * v.pos); c = col; n = m.TransformDir v.n }
+        }
+
+    let shadeFrag (v : Vertex) =
+        fragment {
+            let l  = Vec.normalize (V3f(1.0f, 2.0f, 3.0f))
+            let nn = Vec.normalize v.n
+            let d  = 0.25f + 0.75f * max 0.0f (Vec.dot nn l)
+            return V4f(v.c.XYZ * d, 1.0f)
+        }
 
 // ─── Args ─────────────────────────────────────────────────────────────
 
@@ -38,24 +69,27 @@ type Args =
       Frames  : int
       Warmup  : int
       Size    : int
+      Heap    : bool
       Assets  : string
       Out     : string }
 
 let private parseArgs (argv: string[]) =
     let mutable a =
         { Model = None; N = 5004; Frames = 60; Warmup = 20; Size = 1024
+          Heap = false
           Assets = Path.Combine(__SOURCE_DIRECTORY__, "..", "assets")
           Out = "results/dotnet.csv" }
     let rec go i =
-        if i < argv.Length - 1 then
+        if i < argv.Length then
             match argv.[i] with
-            | "--model"  -> a <- { a with Model = Some argv.[i+1] }
-            | "--n"      -> a <- { a with N = int argv.[i+1] }
-            | "--frames" -> a <- { a with Frames = int argv.[i+1] }
-            | "--warmup" -> a <- { a with Warmup = int argv.[i+1] }
-            | "--size"   -> a <- { a with Size = int argv.[i+1] }
-            | "--assets" -> a <- { a with Assets = argv.[i+1] }
-            | "--out"    -> a <- { a with Out = argv.[i+1] }
+            | "--heap"   -> a <- { a with Heap = true }
+            | "--model" when i + 1 < argv.Length  -> a <- { a with Model = Some argv.[i+1] }
+            | "--n"      when i + 1 < argv.Length -> a <- { a with N = int argv.[i+1] }
+            | "--frames" when i + 1 < argv.Length -> a <- { a with Frames = int argv.[i+1] }
+            | "--warmup" when i + 1 < argv.Length -> a <- { a with Warmup = int argv.[i+1] }
+            | "--size"   when i + 1 < argv.Length -> a <- { a with Size = int argv.[i+1] }
+            | "--assets" when i + 1 < argv.Length -> a <- { a with Assets = argv.[i+1] }
+            | "--out"    when i + 1 < argv.Length -> a <- { a with Out = argv.[i+1] }
             | _ -> ()
             go (i + 1)
     go 0
@@ -73,10 +107,17 @@ let private rnd (bound: int) =
 
 // ─── Assembly (same naive structure as the web bench) ─────────────────
 
-/// Per-part adaptive transform = (edit rotation) ∘ (base placement),
-/// one composed trafo per part. One edit = rotate the part in place.
+/// One unique object's geometry buffers; instances share these and
+/// nothing else (the converter already emits compact per-part slices).
+type Geometry =
+    { Attrs : IAttributeProvider
+      Index : BufferView
+      FVC   : int }
+
 type Assembly =
-    { Sg         : ISg
+    { Geoms      : Geometry[]
+      PartGeom   : int[]
+      PartColor  : C4f[]
       Trafos     : cval<Trafo3d>[]
       BaseTrafos : Trafo3d[]
       Angles     : float[]
@@ -90,18 +131,33 @@ type Assembly =
         this.Trafos.[i].Value <-
             Trafo3d.RotationZ this.Angles.[i] * this.BaseTrafos.[i]
 
+let private mkGeometry (positions: V3f[]) (normals: V3f[]) (index: int[]) =
+    let bv (arr: Array) (t: Type) = BufferView(AVal.constant (ArrayBuffer(arr) :> IBuffer), t)
+    { Attrs =
+        AttributeProvider.ofList [
+            DefaultSemantic.Positions, bv positions typeof<V3f>
+            DefaultSemantic.Normals,   bv normals   typeof<V3f>
+        ]
+      Index = bv index typeof<int>
+      FVC = index.Length }
+
 let private synthetic (n: int) =
     let side = ceil (sqrt (float n)) |> int
     let bases =
         Array.init n (fun i ->
             Trafo3d.Translation(float (i % side) * 1.2, float (i / side) * 1.2, 0.0))
-    let trafos = bases |> Array.map cval
-    let box = Sg.box' C4b.White Box3d.Unit
-    let parts =
-        Array.init n (fun i -> box |> Sg.trafo trafos.[i])
+    let g = (IndexedGeometryPrimitives.Box.solidBox Box3d.Unit C4b.White).ToIndexed()
+    let geom =
+        mkGeometry
+            (g.IndexedAttributes.[DefaultSemantic.Positions] |> unbox<V3f[]>)
+            (g.IndexedAttributes.[DefaultSemantic.Normals]   |> unbox<V3f[]>)
+            (g.IndexArray |> unbox<int[]>)
     let c = sqrt (float n) * 0.6
-    { Sg = Sg.ofArray parts
-      Trafos = trafos; BaseTrafos = bases; Angles = Array.zeroCreate n
+    { Geoms = [| geom |]
+      PartGeom = Array.zeroCreate n
+      PartColor = Array.create n (C4f(0.62, 0.68, 0.78, 1.0))
+      Trafos = bases |> Array.map cval
+      BaseTrafos = bases; Angles = Array.zeroCreate n
       Center = V3d(c, c, 0.0); Radius = sqrt (float n) * 0.6 }
 
 // ─── Converted-CSF model loader (same assets as the web bench) ───────
@@ -130,8 +186,6 @@ let private loadModel (dir: string) =
     let nrmBytes = File.ReadAllBytes(Path.Combine(dir, "normals.bin"))
     let idxBytes = File.ReadAllBytes(Path.Combine(dir, "indices.bin"))
 
-    // every unique object gets its own arrays (truly naive input);
-    // instances of the same object share the resulting IndexedGeometry
     let geometries =
         manifest.geoms |> Array.map (fun g ->
             let pos = Array.zeroCreate<V3f> g.vn
@@ -140,29 +194,17 @@ let private loadModel (dir: string) =
             MemoryMarshal.Cast<byte, V3f>(ReadOnlySpan(posBytes, g.v0 * 12, g.vn * 12)).CopyTo(Span pos)
             MemoryMarshal.Cast<byte, V3f>(ReadOnlySpan(nrmBytes, g.v0 * 12, g.vn * 12)).CopyTo(Span nrm)
             Buffer.BlockCopy(idxBytes, g.i0 * 4, idx, 0, g.ic * 4)
-            IndexedGeometry(
-                Mode = IndexedGeometryMode.TriangleList,
-                IndexArray = (idx :> Array),
-                IndexedAttributes =
-                    SymDict.ofList [
-                        DefaultSemantic.Positions, pos :> Array
-                        DefaultSemantic.Normals,   nrm :> Array
-                    ])
-            |> Sg.ofIndexedGeometry)
+            mkGeometry pos nrm idx)
 
-    let n = manifest.nodes.Length
     let bases =
         manifest.nodes |> Array.map (fun nd ->
             let m = M44d(nd.tm)
             Trafo3d(m, m.Inverse))
-    let trafos = bases |> Array.map cval
-    let parts =
-        manifest.nodes |> Array.mapi (fun i nd ->
-            geometries.[nd.g]
-            |> Sg.trafo trafos.[i]
-            |> Sg.uniform "Color" (AVal.constant (C4f(nd.c.[0], nd.c.[1], nd.c.[2], 1.0))))
-    { Sg = Sg.ofArray parts
-      Trafos = trafos; BaseTrafos = bases; Angles = Array.zeroCreate n
+    { Geoms = geometries
+      PartGeom = manifest.nodes |> Array.map (fun nd -> nd.g)
+      PartColor = manifest.nodes |> Array.map (fun nd -> C4f(nd.c.[0], nd.c.[1], nd.c.[2], 1.0))
+      Trafos = bases |> Array.map cval
+      BaseTrafos = bases; Angles = Array.zeroCreate bases.Length
       Center = V3d manifest.center; Radius = manifest.radius }
 
 // ─── Sweep ────────────────────────────────────────────────────────────
@@ -179,6 +221,7 @@ let private mkSweep (n: int) =
 let main argv =
     Aardvark.Init()
     let args = parseArgs argv
+    if args.Heap then HeapConfig.Enabled <- true
 
     let assembly =
         match args.Model with
@@ -186,30 +229,50 @@ let main argv =
         | None -> synthetic args.N
     let n = assembly.N
     let modelName = args.Model |> Option.defaultValue "synthetic"
-    Log.line "model=%s n=%d frames=%d warmup=%d size=%d" modelName n args.Frames args.Warmup args.Size
+    Log.line "model=%s n=%d frames=%d warmup=%d size=%d heap=%b"
+        modelName n args.Frames args.Warmup args.Size args.Heap
 
-    use app = new OpenGlApplication()
+    use app = new Aardvark.Application.Slim.VulkanApplication(false)
     let runtime = app.Runtime :> IRuntime
 
     // camera matches the web bench's initial orbit position
     let center, dist = assembly.Center, assembly.Radius * 3.0
-    let view =
-        CameraView.lookAt (center + V3d(dist, 0.0, dist * 0.3)) center V3d.OOI
-        |> CameraView.viewTrafo
-    let proj =
-        Frustum.perspective 60.0 (dist * 0.01) (dist * 100.0) 1.0
-        |> Frustum.projTrafo
+    let view = CameraView.lookAt (center + V3d(dist, 0.0, dist * 0.3)) center V3d.OOI |> CameraView.viewTrafo
+    let proj = Frustum.perspective 60.0 (dist * 0.01) (dist * 100.0) 1.0 |> Frustum.projTrafo
+    let viewProjU = AVal.constant ((view * proj).Forward |> M44f.op_Explicit) :> IAdaptiveValue
 
-    let sg =
-        assembly.Sg
-        |> Sg.effect [
-            DefaultSurfaces.trafo          |> toEffect
-            DefaultSurfaces.sgColor        |> toEffect
-            DefaultSurfaces.simpleLighting |> toEffect
-           ]
-        |> Sg.viewTrafo' view
-        |> Sg.projTrafo' proj
-        |> Sg.uniform "Color" (AVal.constant (C4f(0.62, 0.68, 0.78, 1.0)))
+    let effect =
+        Effect.compose [
+            Effect.ofFunction Shaders.shade
+            Effect.ofFunction Shaders.shadeFrag
+        ]
+
+    // one RenderObject per part — naive input, no instancing hints;
+    // instances of the same unique object share its geometry buffers
+    let ros =
+        Array.init n (fun i ->
+            let g = assembly.Geoms.[assembly.PartGeom.[i]]
+            let ro = RenderObject()
+            ro.Surface   <- Surface.Effect effect
+            ro.Mode      <- IndexedGeometryMode.TriangleList
+            ro.VertexAttributes <- g.Attrs
+            ro.Indices   <- Some g.Index
+            ro.DrawCalls <- DrawCalls.Direct (AVal.constant [| DrawCallInfo(FaceVertexCount = g.FVC, InstanceCount = 1) |])
+            ro.Uniforms  <-
+                UniformProvider.ofList [
+                    Symbol.Create "HeapModelTrafo",
+                        (assembly.Trafos.[i] |> AVal.map (fun (t: Trafo3d) -> M44f.op_Explicit t.Forward) :> IAdaptiveValue)
+                    Symbol.Create "HeapColor",
+                        (AVal.constant (assembly.PartColor.[i].ToV4f()) :> IAdaptiveValue)
+                    Symbol.Create "ViewProjTrafo", viewProjU
+                ]
+            ro :> IRenderObject)
+
+    let objects =
+        let set = ASet.ofArray ros
+        if args.Heap then
+            Heap.ofRenderObjects runtime (Set.ofList [ "HeapModelTrafo"; "HeapColor" ]) set
+        else set
 
     // offscreen FBO — no window, no swapchain, no Aardium blit
     let size = V2i args.Size
@@ -230,7 +293,7 @@ let main argv =
     use task =
         RenderTask.ofList [
             runtime.CompileClear(signature, clear { color (C4f(0.063, 0.07, 0.086)); depth 1.0 })
-            sg |> Sg.compile runtime signature
+            runtime.CompileRender(signature, objects)
         ]
 
     let gpuQuery = runtime.CreateTimeQuery()
@@ -238,7 +301,7 @@ let main argv =
 
     let renderFrame () =
         task.Run(AdaptiveToken.Top, token, output)
-        // blocking query read = frame sync (no glFinish needed)
+        // blocking query read = frame sync (no device-wait needed)
         let gpu = gpuQuery.GetResult((), reset = true)
         gpu.TotalMilliseconds
 
@@ -250,6 +313,7 @@ let main argv =
     sw.Restart()
     let _ = renderFrame ()
     Log.line "first frame (compile+upload): %.0f ms" sw.Elapsed.TotalMilliseconds
+    if args.Heap then Log.line "heap buckets: %d (of %d ROs)" Heap.lastBucketCount n
 
     for k in mkSweep n do
         for f in 1 .. args.Warmup + args.Frames do

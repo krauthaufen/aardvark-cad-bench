@@ -135,59 +135,74 @@ The crossover where per-change tracking stops paying sits between 5 % and
 
 ![n=1000 grid](results/n1000-grid.png)
 
-## .NET bench (classic Aardvark.Rendering, no vsync)
+## .NET bench (Aardvark.Rendering, Vulkan, no vsync)
 
-`dotnet/` runs the same sweep one level lower on classic
-**Aardvark.Rendering** (.NET, GL backend): no window, no Aardium
+`dotnet/` runs the same sweep one level lower on **Aardvark.Rendering**
+(.NET, Vulkan, `5.7.0-prerelease0002`): no window, no Aardium
 presentation (which blits every frame through a memory-mapped file) —
-the scene is compiled to an `IRenderTask` and explicitly `Run()` into an
-**offscreen FBO** every frame. GPU time comes from an `ITimeQuery`
-passed via `RenderToken`; its blocking `GetResult` doubles as the frame
-sync, so `frameMs` is true end-to-end frame cost, not a vsync-clamped
-rAF delta. Same converted assets, same edit pattern, extra `gpuMs`
-CSV column.
+render objects are built directly (no scene graph), compiled to an
+`IRenderTask` and explicitly `Run()` into an **offscreen FBO** every
+frame. GPU time comes from an `ITimeQuery` passed via `RenderToken`;
+its blocking `GetResult` doubles as the frame sync, so `frameMs` is
+true end-to-end frame cost, not a vsync-clamped rAF delta. Same
+converted assets, same edit pattern, extra `gpuMs` CSV column.
+
+`--heap` activates the prerelease **heap renderer**
+(`HeapConfig.Enabled` + `Heap.ofRenderObjects`): the N per-part render
+objects collapse into ONE bucket per effect, drawn as a single indirect
+multidraw against a shared arena through the auto-rewritten shader —
+the .NET equivalent of the wombat/WebGPU heap path. Output verified
+pixel-identical to the classic path (worldcar) on the same
+deterministic edit sequence.
 
 ```bash
 cd dotnet
-DISPLAY=:0 dotnet run -c Release -- --model geforce-parts --out ../results/dotnet-geforce-parts.csv
-dotnet run -c Release -- --n 20000 --out ../results/dotnet-n20000.csv
+dotnet run -c Release -- --model geforce-parts --out ../results/vk-geforce-parts.csv
+dotnet run -c Release -- --model geforce-parts --heap --out ../results/vk-heap-geforce-parts.csv
 ```
 
-Results (medians; RTX 5060, GL):
+Classic vs heap (medians, frame / edit / gpu ms; RTX 5060, Vulkan):
 
-| model | n | metric | k=1 | k=100 | k=1000 | k=10000 | k=n |
-|---|---|---|---|---|---|---|---|
-| geforce-parts | 68 452 | frame ms | 33.0 | 32.9 | 38.1 | 92.2 | 367 |
-| | | edit ms | 0.02 | 0.27 | 2.7 | 34.3 | 213 |
-| | | gpu ms | 32.2 | 31.9 | 34.2 | 55.2 | 148 |
-| worldcar | 1 811 | frame ms | 1.2 | 1.9 | 4.2 | — | 5.8 |
-| synthetic | 20 000 | frame ms | 3.2 | 3.3 | 8.4 | 58.9 | 104 |
+| model | n | k | classic | heap (1 bucket) | frame speedup |
+|---|---|---|---|---|---|
+| geforce-parts | 68 452 | 1 | 31.7 / 0.02 / 11.7 | **0.74** / 0.02 / **0.40** | **43×** |
+| | | 1 000 | 45.3 / 6.3 / 12.1 | 4.4 / 2.4 / 0.41 | 10× |
+| | | 10 000 | 219 / 77 / 17.4 | 45.7 / 29.2 / 0.44 | 4.8× |
+| | | 68 452 | 923 / 429 / 44.8 | 125 / 103 / 0.44 | 7.4× |
+| synthetic | 20 000 | 1 | 8.2 / 0.02 / 3.4 | 0.45 / 0.02 / 0.14 | 19× |
+| | | 20 000 | 219 / 99 / 3.4 | 16.9 / 15.9 / 0.15 | 13× |
+| worldcar | 1 811 | 1 | 1.4 / 0.02 / 0.8 | 0.92 / 0.02 / 0.57 | 1.5× |
+| | | 1 811 | 11.5 / 4.9 / 0.8 | 4.6 / 2.3 / 0.57 | 2.5× |
 
-What the uncapped numbers add to the story:
+What the uncapped numbers show:
 
-- **Sparse edits are even cheaper on .NET**: ~2.7 µs/edit
-  (k=1000 → 2.7 ms) vs ~7 µs/edit in the JS port — and a k=1 edit
-  is 20 µs end to end.
-- **Object count, not triangle count, is the GPU-side cost driver**
-  for classic per-draw GL: worldcar's 2.33 M triangles in 1 811 draws
-  render in 0.7 ms GPU, while geforce-parts' 0.25 M triangles in
-  68 452 draws take 32 ms GPU (~0.5 µs/draw). This is precisely the
-  CAD many-small-parts problem the paper targets — and the
-  wombat/WebGPU heap renderer (MDI, one indirect dispatch) renders
-  the same 68 k objects inside a 16.7 ms vsync budget where classic
-  GL needs 33 ms.
-- The k=N reference on .NET: 367 ms (213 edit + 148 GPU) vs 600 ms
-  in the browser — FSharp.Data.Adaptive propagation is ~2.6× faster
-  on .NET than the JS port.
-- First frame (compile + upload) at 68 k objects: 23.5 s on classic
-  Aardvark's per-RO compile path vs ~1 s scene build in wombat —
-  another place where naive-input scale stresses paths tuned for
-  smaller object counts.
+- **The heap renderer draws the 68 452-part board in 0.74 ms
+  (0.40 ms GPU) — ~1 350 fps** — where the classic per-draw path needs
+  31.7 ms. Object-count overhead (~0.5 µs/draw on the older GL run,
+  ~0.17 µs effective on Vulkan classic) simply disappears when 68 452
+  draws collapse into one indirect multidraw: GPU time becomes flat
+  (0.40–0.44 ms) at EVERY change density, including k = N.
+- **Object count, not triangle count, drives the classic per-draw
+  cost**: worldcar's 2.33 M triangles in 1 811 draws render in 0.8 ms
+  GPU; the board's 0.25 M triangles in 68 452 draws take 11.7 ms GPU.
+  The many-small-parts CAD problem in one row — and the heap path
+  erases it.
+- **First frame at 68 k objects: classic Vulkan 55.7 s vs heap
+  3.0 s** (the per-RO descriptor/command compile is the bottleneck,
+  not the upload).
+- Even at k = N (everything changes), heap wins 7×: one arena upload
+  + 1 indirect draw vs 68 452 uniform-buffer updates + draws.
+- Sparse edits cost ~2.4 µs/edit (.NET) vs ~7 µs (JS port); a k=1
+  edit is 20 µs end to end.
+
+(An earlier GL 5.6.5 run of the classic path — `results/dotnet-*.csv` —
+matches the Vulkan classic numbers closely: 33 ms k=1 frame at 68 k,
+367 ms k=N.)
 
 Timing-comparison caveat: the web bench's `frameMs` is a rAF delta —
 WebGPU work is submitted asynchronously and vsync clamps from below, so
 browser frame numbers are not directly comparable to the .NET
-blocking-query numbers; the .NET column is the honest hardware cost.
+blocking-query numbers; the .NET columns are the honest hardware cost.
 
 ## Status / caveats (v1)
 

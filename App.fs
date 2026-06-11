@@ -73,13 +73,17 @@ let private warmupFrames  = paramInt "warmup" 20
 let mutable private nParts = paramInt "n" 5004
 
 /// Log-spaced sweep: 1, 3, 10, 32, … up to and including N.
+/// `?fixk=K` holds a single k forever (profiling aid).
 let private mkSweep (n: int) =
-    let steps =
-        [ 0 .. 12 ]
-        |> List.map (fun i -> System.Math.Pow(10.0, float i / 2.0) |> round |> int)
-        |> List.filter (fun k -> k >= 1 && k < n)
-        |> List.distinct
-    steps @ [ n ]
+    match paramInt "fixk" 0 with
+    | k when k >= 1 -> [ min k n ]
+    | _ ->
+        let steps =
+            [ 0 .. 12 ]
+            |> List.map (fun i -> System.Math.Pow(10.0, float i / 2.0) |> round |> int)
+            |> List.filter (fun k -> k >= 1 && k < n)
+            |> List.distinct
+        steps @ [ n ]
 let mutable private sweep : int list = []
 
 // ─── Assembly (mode-independent core) ─────────────────────────────────

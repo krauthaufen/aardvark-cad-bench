@@ -216,32 +216,39 @@ one-shot `__wombatOnFrame` hook. `frameMs` is then true end-to-end
 frame cost including GPU completion, the browser equivalent of the
 .NET blocking-query numbers.
 
-Uncapped results (medians, frame / edit ms):
+Uncapped results (medians, frame / edit ms; `wombat.rendering 0.19.24`):
 
-| model | n | k=1 | k=1000 | k=n |
-|---|---|---|---|---|
-| geforce-parts | 68 452 | **3.7** / 0.1 | 32.9 / 6.9 | 614 / 533 |
-| synthetic | 20 000 | **3.7** / 0.0 | 16.8 / 6.3 | 176 / 147 |
-| worldcar | 1 811 | **3.7** / 0.0 | 10.3 / 5.6 | 16.4 / 10.3 |
+| model | n | k=1 | k=100 | k=1000 | k=n |
+|---|---|---|---|---|---|
+| geforce-parts | 68 452 | **3.7** / 0.0 | 4.7 / 0.8 | 12.9 / 6.8 | 652 / 544 |
+| synthetic | 20 000 | **3.8** / 0.1 | 4.7 / 0.8 | 12.3 / 6.3 | 195 / 155 |
+| worldcar | 1 811 | **4.0** / 0.1 | 4.9 / 0.7 | 11.4 / 6.0 | 17.3 / 10.7 |
 
-- **The sparse-edit frame costs 3.7 ms at EVERY scene size** — 1 811,
-  20 000 and 68 452 objects all render in the same time when one part
-  changes. That's the change-size-not-scene-size claim measured
-  end-to-end in the browser (one MDI dispatch; the 3.7 ms floor is
-  dominated by the WebGPU IPC/present round-trip, JS encode is
-  ~0.5 ms/frame).
-- Cross-engine: wombat 3.7 ms vs .NET Vulkan heap 0.74 ms (≈5×
-  browser tax) vs .NET Vulkan classic per-draw 31.7 ms — the
-  browser MDI path beats native classic per-draw by ~8× on
-  sparse edits at 68 k objects.
-- At k = N the vsync-clamped and uncapped numbers agree (614 vs
+- **The sparse-edit frame costs ~4 ms at EVERY scene size** — 1 811,
+  20 000 and 68 452 objects all render in the same time when a part
+  changes, and the curve stays flat through k≈100. That's the
+  change-size-not-scene-size claim measured end-to-end in the
+  browser (one MDI dispatch; the ~4 ms floor is the WebGPU
+  IPC/present round-trip, JS encode is ~0.5 ms/frame).
+- Cross-engine at 68 k, k=1: wombat 3.7 ms vs .NET Vulkan heap
+  0.74 ms (≈5× browser tax) vs .NET Vulkan classic per-draw
+  31.7 ms — the browser MDI path beats native classic per-draw
+  ~8× on sparse edits.
+- At k = N the vsync-clamped and uncapped numbers agree (652 vs
   600 ms) — vsync was irrelevant there all along.
-- Render-side cost rises with the number of *changed* objects
-  (68 452 objects: 16 ms at k=3 → 28 ms at k=316, beyond the edit
-  cost itself) — consistent with per-dirty-uniform `writeBuffer`
-  IPC overhead (~30–90 µs/call); dirty-range coalescing in the
-  uniform-pool flush is the obvious engine follow-up (untested
-  hypothesis, needs instrumentation).
+
+**The uncapped mode found (and fixed) two engine bugs.** The first
+run showed a 16–28 ms plateau for k=3…316 at 68 k objects. Initial
+hypothesis (per-dirty-uniform `writeBuffer` IPC) was WRONG —
+instrumenting `GPUQueue.writeBuffer` by buffer label showed
+`derivedUniforms.constituents` uploading **28 MB per frame**
+(10 GB/s): the GPU transform-propagation path uploaded the dirty
+slot set as one **min..max span**, so a handful of scattered edits
+re-uploaded nearly the whole constituents buffer. Fixed in
+`0.19.24` (per-run uploads: sort dirty slots, merge runs ≤32 clean
+slots apart) — k=10 dropped 22.5 → 3.9 ms. The same span pattern in
+the arena/index shadow flushes was fixed preventively in `0.19.23`
+(`DirtyRanges`, sorted disjoint intervals with bounded count).
 
 ## Status / caveats (v1)
 

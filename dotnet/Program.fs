@@ -70,19 +70,21 @@ type Args =
       Warmup  : int
       Size    : int
       Heap    : bool
+      Churn   : bool
       Assets  : string
       Out     : string }
 
 let private parseArgs (argv: string[]) =
     let mutable a =
         { Model = None; N = 5004; Frames = 60; Warmup = 20; Size = 1024
-          Heap = false
+          Heap = false; Churn = false
           Assets = Path.Combine(__SOURCE_DIRECTORY__, "..", "assets")
           Out = "results/dotnet.csv" }
     let rec go i =
         if i < argv.Length then
             match argv.[i] with
             | "--heap"   -> a <- { a with Heap = true }
+            | "--churn"  -> a <- { a with Churn = true }
             | "--model" when i + 1 < argv.Length  -> a <- { a with Model = Some argv.[i+1] }
             | "--n"      when i + 1 < argv.Length -> a <- { a with N = int argv.[i+1] }
             | "--frames" when i + 1 < argv.Length -> a <- { a with Frames = int argv.[i+1] }
@@ -249,27 +251,58 @@ let main argv =
 
     // one RenderObject per part — naive input, no instancing hints;
     // instances of the same unique object share its geometry buffers
+    let mkRO (g: Geometry) (trafo: IAdaptiveValue) (color: C4f) =
+        let ro = RenderObject()
+        ro.Surface   <- Surface.Effect effect
+        ro.Mode      <- IndexedGeometryMode.TriangleList
+        ro.VertexAttributes <- g.Attrs
+        ro.Indices   <- Some g.Index
+        ro.DrawCalls <- DrawCalls.Direct (AVal.constant [| DrawCallInfo(FaceVertexCount = g.FVC, InstanceCount = 1) |])
+        ro.Uniforms  <-
+            UniformProvider.ofList [
+                Symbol.Create "HeapModelTrafo", trafo
+                Symbol.Create "HeapColor", (AVal.constant (color.ToV4f()) :> IAdaptiveValue)
+                Symbol.Create "ViewProjTrafo", viewProjU
+            ]
+        ro :> IRenderObject
+
     let ros =
         Array.init n (fun i ->
-            let g = assembly.Geoms.[assembly.PartGeom.[i]]
-            let ro = RenderObject()
-            ro.Surface   <- Surface.Effect effect
-            ro.Mode      <- IndexedGeometryMode.TriangleList
-            ro.VertexAttributes <- g.Attrs
-            ro.Indices   <- Some g.Index
-            ro.DrawCalls <- DrawCalls.Direct (AVal.constant [| DrawCallInfo(FaceVertexCount = g.FVC, InstanceCount = 1) |])
-            ro.Uniforms  <-
-                UniformProvider.ofList [
-                    Symbol.Create "HeapModelTrafo",
-                        (assembly.Trafos.[i] |> AVal.map (fun (t: Trafo3d) -> M44f.op_Explicit t.Forward) :> IAdaptiveValue)
-                    Symbol.Create "HeapColor",
-                        (AVal.constant (assembly.PartColor.[i].ToV4f()) :> IAdaptiveValue)
-                    Symbol.Create "ViewProjTrafo", viewProjU
-                ]
-            ro :> IRenderObject)
+            mkRO assembly.Geoms.[assembly.PartGeom.[i]]
+                 (assembly.Trafos.[i] |> AVal.map (fun (t: Trafo3d) -> M44f.op_Explicit t.Forward) :> IAdaptiveValue)
+                 assembly.PartColor.[i])
+
+    // ── churn mode: per frame remove r + add r (population constant) —
+    //    small shared geometry, so this measures the STRUCTURAL paths
+    //    (RO prepare/dispose, draw-record add/remove, arena alloc/free)
+    let churnSet = if args.Churn then Some (cset ros) else None
+    let churnMirror = ResizeArray ros
+    let gridSide = ceil (sqrt (float n)) |> int
+    let mkFresh () =
+        let p = Trafo3d.Translation(float (rnd gridSide) * 1.2, float (rnd gridSide) * 1.2, 0.0)
+        mkRO assembly.Geoms.[rnd assembly.Geoms.Length]
+             (AVal.constant (M44f.op_Explicit p.Forward) :> IAdaptiveValue)
+             (C4f(0.62, 0.68, 0.78, 1.0))
+    let doEdits (k: int) =
+        match churnSet with
+        | Some set ->
+            for _ in 1 .. k do
+                let i = rnd churnMirror.Count
+                let dead = churnMirror.[i]
+                churnMirror.[i] <- churnMirror.[churnMirror.Count - 1]
+                churnMirror.RemoveAt(churnMirror.Count - 1)
+                set.Remove dead |> ignore
+                let fresh = mkFresh ()
+                churnMirror.Add fresh
+                set.Add fresh |> ignore
+        | None ->
+            for _ in 1 .. k do assembly.EditPart (rnd n)
 
     let objects =
-        let set = ASet.ofArray ros
+        let set =
+            match churnSet with
+            | Some s -> s :> aset<IRenderObject>
+            | None -> ASet.ofArray ros
         if args.Heap then
             Heap.ofRenderObjects runtime (Set.ofList [ "HeapModelTrafo"; "HeapColor" ]) set
         else set
@@ -315,11 +348,15 @@ let main argv =
     Log.line "first frame (compile+upload): %.0f ms" sw.Elapsed.TotalMilliseconds
     if args.Heap then Log.line "heap buckets: %d (of %d ROs)" Heap.lastBucketCount n
 
-    for k in mkSweep n do
+    let sweepKs =
+        if args.Churn then
+            (mkSweep n |> List.filter (fun k -> k <= n / 10)) @ [ n / 10 ]
+            |> List.distinct
+        else mkSweep n
+    for k in sweepKs do
         for f in 1 .. args.Warmup + args.Frames do
             sw.Restart()
-            transact (fun () ->
-                for _ in 1 .. k do assembly.EditPart (rnd n))
+            transact (fun () -> doEdits k)
             let editMs = sw.Elapsed.TotalMilliseconds
             sw.Restart()
             let gpuMs = renderFrame ()

@@ -250,6 +250,48 @@ slots apart) — k=10 dropped 22.5 → 3.9 ms. The same span pattern in
 the arena/index shadow flushes was fixed preventively in `0.19.23`
 (`DirtyRanges`, sorted disjoint intervals with bounded count).
 
+## Structural churn (`?churn=1` / `--churn`)
+
+Trafo edits are the cheapest interesting edit class (uniform data only).
+Churn mode measures the STRUCTURAL paths instead: per frame, one
+transaction removes r random parts and adds r fresh ones (population
+constant at n; small shared box geometry so triangle count plays no
+role). Sweep r = 1 … n/10, n = 20 000.
+
+Results (medians, frame / edit ms):
+
+| r | web (wombat) | .NET Vulkan classic | .NET Vulkan heap |
+|---:|---:|---:|---:|
+| 1 | 5.3 / 0.1 | 21.8 / 0.0 | 359 / 0.0 |
+| 100 | 30.3 / 2.7 | 73.3 / 0.4 | 426 / 0.4 |
+| 1 000 | 297 / 28 | 1 381 / 19 | 412 / 3.1 |
+| 2 000 | 603 / 59 | 1 674 / 29 | 385 / 14 |
+| marginal µs per add+remove pair | ~300 | ~830 | ~12 |
+
+Three completely different structural-cost shapes:
+
+- **wombat (web)**: properly incremental — base 5.3 ms, ~300 µs per
+  add+remove pair (≈30× a trafo edit; draw-record add/remove + arena
+  alloc/release + bucket bookkeeping per changed object).
+- **.NET classic**: incremental but expensive — ~830 µs/pair,
+  dominated by per-RO Vulkan prepare/dispose (descriptor sets,
+  uniform buffers). This is the steady-state echo of the 55 s
+  first-frame compile.
+- **.NET heap (5.7 prerelease)**: ~FLAT 360–430 ms at EVERY r,
+  including r = 1 — `Heap.ofRenderObjects` re-buckets from scratch on
+  any set delta (an `AVal.custom` over the whole RO-set snapshot), so
+  one add/remove costs a full 20 k-object re-ingestion (~18 µs/RO).
+  Its *marginal* cost (~12 µs/pair) shows how cheap the underlying
+  arena add/remove is — the `HeapScene` API is incremental (the
+  HeapSpike demo churns live); the RO-level wrapper just doesn't use
+  that incrementality yet. Crossover vs classic sits at r ≈ 430.
+
+Honest summary: for structural churn the browser engine currently has
+the best shape (incremental, smallest constant), classic pays ~1 ms
+per object turned over, and the .NET heap wrapper turns any structural
+edit into "everything, all the time" until its delta path lands —
+the exact failure mode this benchmark exists to make visible.
+
 ## Status / caveats (v1)
 
 - Frame time via rAF deltas — no GPU timestamps yet (WebGPU

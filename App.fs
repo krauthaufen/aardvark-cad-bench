@@ -110,6 +110,11 @@ let private editPart (i: int) =
         Trafo3d.rotation (V3d.create 0.0 0.0 1.0) partAngles.[i]
         * baseTrafos.[i]
 
+/// Per-frame edit batch — trafo nudges by default; churn mode
+/// (add/remove) replaces it. ALWAYS called inside one transact.
+let mutable private doEdits : int -> unit =
+    fun k -> for _ in 1 .. k do editPart (rnd nParts)
+
 // ─── Shader: ModelViewProjTrafo + lambert ─────────────────────────────
 // The published DefaultSurfaces.trafo (prerelease0003) is CAMERA-ONLY
 // (reads ViewProjTrafo, no model term) — per-part Sg.Trafo placement
@@ -173,6 +178,54 @@ let private initSynthetic () =
             Sg.Effect benchEffect
             Sg.Uniform ("Tint", box (V4f (0.62f, 0.68f, 0.78f, 1.0f)))
             parts
+        }
+    let c = System.Math.Sqrt(float n) * 0.6
+    camCenter <- V3d.create c c 0.0
+    camDistance <- System.Math.Sqrt(float n) * 1.8
+
+// ─── Churn mode (?churn=1): structural add/remove sweep ──────────────
+// Per frame, ONE transact removes r random parts and adds r fresh
+// ones (population constant at n). Small shared geometry (a box) so
+// triangle count plays no role — this measures the structural paths:
+// scene-graph delta, draw-record add/remove, arena alloc/release.
+// Sweep: r log-spaced 1 .. n/10. Under Fable the portable scene nodes
+// ARE wombat.dom SgNodes, so a raw UnorderedGroup over a cset works.
+
+[<Emit("{ kind: 'UnorderedGroup', children: $0 }")>]
+let private unorderedGroup (_children: cset<ISceneNode>) : ISceneNode = jsNative
+
+let private churn = paramInt "churn" 0 = 1
+
+let private initChurn () =
+    let n = nParts
+    sweep <-
+        (mkSweep nParts |> List.filter (fun k -> k <= n / 10))
+        @ [ n / 10 ] |> List.distinct
+    let side = System.Math.Ceiling(System.Math.Sqrt(float n)) |> int
+    let boxG = Primitives.box ()
+    let mkNode () =
+        let p = V3d.create (float (rnd side) * 1.2) (float (rnd side) * 1.2) 0.0
+        sg {
+            Sg.Trafo (Trafo3d.translation p)
+            Sg.Adapter boxG
+        }
+    let nodes = ResizeArray<ISceneNode>(Seq.init n (fun _ -> mkNode ()))
+    let set : cset<ISceneNode> = cset nodes
+    doEdits <- fun r ->
+        for _ in 1 .. r do
+            let i = rnd nodes.Count
+            let nd = nodes.[i]
+            nodes.[i] <- nodes.[nodes.Count - 1]
+            nodes.RemoveAt(nodes.Count - 1)
+            set.Remove nd |> ignore
+            let fresh = mkNode ()
+            nodes.Add fresh
+            set.Add fresh |> ignore
+    sceneRoot <-
+        sg {
+            Sg.Effect benchEffect
+            Sg.Uniform ("Tint", box (V4f (0.62f, 0.68f, 0.78f, 1.0f)))
+            unorderedGroup set
         }
     let c = System.Math.Sqrt(float n) * 0.6
     camCenter <- V3d.create c c 0.0
@@ -334,8 +387,7 @@ let rec private utick () =
              | _ -> ())
             defer utick)
         let tEdit0 = nowMs ()
-        transact (fun () ->
-            for _ in 1 .. k do editPart (rnd nParts))
+        transact (fun () -> doEdits k)
         lastEditMs <- nowMs () - tEdit0
 
 /// Called once per animation frame (rAF). Performs the next edit batch
@@ -361,8 +413,7 @@ let rec private tick (_t: float) =
         // one transaction editing k random parts
         let k = currentK ()
         let tEdit0 = nowMs ()
-        transact (fun () ->
-            for _ in 1 .. k do editPart (rnd nParts))
+        transact (fun () -> doEdits k)
         let editMs = nowMs () - tEdit0
         match phase with
         | Measure _ when frameDt > 0.0 ->
@@ -422,7 +473,10 @@ let main _ =
             JS.console.log ("phase-times", {| fetch = tInit - tFetch; init = tRun - tInit; runApp = nowMs () - tRun |})
             startDriver ())
     else
-        initSynthetic ()
+        if churn then
+            sweep <- []   // initChurn sets it
+            initChurn ()
+        else initSynthetic ()
         Shell.runApp app |> ignore
         startDriver ()
     0

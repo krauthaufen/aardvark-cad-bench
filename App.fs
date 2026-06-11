@@ -98,6 +98,43 @@ let private editPart (i: int) =
         Trafo3d.rotation (V3d.create 0.0 0.0 1.0) partAngles.[i]
         * Trafo3d.translation partPos.[i]
 
+// ─── Shader: ModelViewProjTrafo + lambert ─────────────────────────────
+// The published DefaultSurfaces.trafo (prerelease0003) is CAMERA-ONLY
+// (reads ViewProjTrafo, no model term) — per-part Sg.Trafo placement
+// requires a shader consuming ModelViewProjTrafo (which the runtime
+// composes incl. the model chain).
+
+type VertexInput =
+    { [<Position>]            Positions : V4f
+      [<Semantic("Normals")>] Normal    : V3f }
+
+type VertexOutput =
+    { [<Position>]            ClipPos : V4f
+      [<Semantic("Normals")>] Normal  : V3f }
+
+[<ShaderEffect>]
+let private benchVertex (v: VertexInput) =
+    vertex {
+        return { ClipPos = (uniform?ModelViewProjTrafo : M44f) * v.Positions
+                 Normal  = Vec.normalize v.Normal }
+    }
+
+type FragmentInput  = { [<Semantic("Normals")>] Normal : V3f }
+type FragmentOutput = { [<Color>] Color : V4f }
+
+[<ShaderEffect>]
+let private benchFragment (f: FragmentInput) =
+    fragment {
+        let n        = Vec.normalize f.Normal
+        let lightDir = Vec.normalize (V3f (0.5f, 1.0f, 0.4f))
+        let lambert  = max 0.2f (Vec.dot n lightDir)
+        return { Color = V4f (0.62f * lambert, 0.68f * lambert, 0.78f * lambert, 1.0f) }
+    }
+
+let private benchEffect : Effect =
+    Effect.compose [ Effect.ofFunction benchVertex
+                     Effect.ofFunction benchFragment ]
+
 let private scene : ISceneNode =
     // Few archetypes, heavy repetition — the GeForce-board shape. One
     // shared geometry; per-part placement via scene-graph composition
@@ -112,10 +149,7 @@ let private scene : ISceneNode =
             })
     let root =
         sg {
-            Sg.Shader {
-                DefaultSurfaces.trafo
-                DefaultSurfaces.simpleLighting
-            }
+            Sg.Effect benchEffect
             parts
         }
     let dbgIdx = min 10 (nParts - 1)

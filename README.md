@@ -40,23 +40,42 @@ URL params: `n` (parts), `frames` (measured frames per step), `warmup`.
 Results land in `window.__benchCsv` / `__benchMeta` (`__benchDone` flags
 completion); the driver saves CSV + meta + screenshot.
 
-## KNOWN ISSUE (blocks per-part placement on current published packages)
+## Findings on the published packages (prerelease0003 + npm wombat 0.17.x)
 
-With `Aardvark.Portable 0.1.0-prerelease0003` + npm `wombat.dom 0.17.1` /
-`wombat.rendering 0.19.17`, **per-part `Sg.Trafo` translations do not reach
-the rendered output** — all parts render at the origin (verified: the cvals
-in the scene tree carry correct matrices, `m03 = 12` etc.; a transpose
-workaround does NOT fix it, so it is not a majorness mismatch — the model
-trafo appears dropped on this version combination, suspected on the
-heap/batched path). Nested `Sg.Trafo`/`Sg.Translate` scopes additionally
-override instead of composing. `Sg.Scale(float)` calls a missing
-`Trafo3d.scalingUniform`.
+- **`DefaultSurfaces.trafo` is CAMERA-ONLY** — it reads `ViewProjTrafo`
+  with no model term, so per-part `Sg.Trafo` placement silently never
+  reaches the screen with the stock shader (the values flow fine; the
+  runtime supplies `ModelTrafo`/`ModelViewProjTrafo`). The bench uses a
+  custom `[<ShaderEffect>]` vertex shader consuming `ModelViewProjTrafo`.
+  (An earlier revision of this README mis-diagnosed this as the engine
+  dropping model trafos — it was the shader all along.)
+- **Nested trafo scopes compose in REVERSE order** relative to the
+  Aardvark.Dom convention on this version combination: an outer
+  `Sg.Translate` + inner `Sg.Trafo(rotation)` yields `R·T·p` (positions
+  swept along arcs about the origin) instead of `T·R·p` (parts rotating
+  in place). The bench sidesteps it with ONE composed trafo per part.
+- `Sg.Scale(float)` calls a missing `Trafo3d.scalingUniform` (runtime
+  error); avoided.
 
-Consequences for current numbers: `editMs` (transaction/propagation cost)
-is meaningful — it scales linearly with k as the thesis predicts — but
-render-side per-part update cost cannot be attributed until the package
-versions re-align (the in-flight portable/wombat modernization). Re-run the
-sweep then.
+## First results
+
+`results/summary.csv`; median over 51 frames/step (RTX 5060, Chromium WebGPU):
+
+| n | k=1 | k=100 | k=1000 | k=3162 | k=n ("everything") |
+|---|---|---|---|---|---|
+| 5 004 — edit ms | 0.1 | 0.9 | 7.9 | 30.0 | 46.6 |
+| 5 004 — frame ms | 16.6 | 16.8 | 16.6 | 32.3 | 49.9 |
+| 20 000 — edit ms | 0.1 | 1.0 | 10.7 | 37.0 | 207.3 |
+| 20 000 — frame ms | 16.7 | 16.8 | 16.5 | 41.8 | 215.6 |
+
+Reading: at 20 000 parts the "everything, all the time" reference costs
+215 ms/frame (≈4.6 fps); sparse edits cost 0.1 ms and the frame stays
+vsync-bound (60 fps) up to ~1 000 edited parts/frame (~5 % density) —
+a ~2 000× span between sparse-edit and full-update cost, widening with n.
+The crossover where per-change tracking stops paying sits between 5 % and
+15 % change density — the honest line in the central figure.
+
+![n=1000 grid](results/n1000-grid.png)
 
 ## Status / caveats (v1)
 

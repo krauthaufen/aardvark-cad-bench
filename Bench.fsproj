@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Change-density benchmark: synthetic CAD-like assembly with per-part adaptive trafos; measures incremental update cost vs change density on the WebGPU backend.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="App.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Aardvark.Portable.Shell.Web" Version="0.1.0-prerelease0003" />
+    <PackageReference Include="Aardvark.Portable.Shader" Version="0.1.0-prerelease0003" />
+    <PackageReference Include="Aardvark.Portable.Shader.Plugin" Version="0.1.0-prerelease0002" />
+  </ItemGroup>
+</Project>

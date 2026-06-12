@@ -71,13 +71,14 @@ type Args =
       Size    : int
       Heap    : bool
       Churn   : bool
+      Ks      : int list option   // explicit sweep values (--ks 1,3,10)
       Assets  : string
       Out     : string }
 
 let private parseArgs (argv: string[]) =
     let mutable a =
         { Model = None; N = 5004; Frames = 60; Warmup = 20; Size = 1024
-          Heap = false; Churn = false
+          Heap = false; Churn = false; Ks = None
           Assets = Path.Combine(__SOURCE_DIRECTORY__, "..", "assets")
           Out = "results/dotnet.csv" }
     let rec go i =
@@ -85,6 +86,8 @@ let private parseArgs (argv: string[]) =
             match argv.[i] with
             | "--heap"   -> a <- { a with Heap = true }
             | "--churn"  -> a <- { a with Churn = true }
+            | "--ks" when i + 1 < argv.Length ->
+                a <- { a with Ks = Some (argv.[i+1].Split(',') |> Array.map int |> Array.toList) }
             | "--model" when i + 1 < argv.Length  -> a <- { a with Model = Some argv.[i+1] }
             | "--n"      when i + 1 < argv.Length -> a <- { a with N = int argv.[i+1] }
             | "--frames" when i + 1 < argv.Length -> a <- { a with Frames = int argv.[i+1] }
@@ -349,6 +352,9 @@ let main argv =
     if args.Heap then Log.line "heap buckets: %d (of %d ROs)" Heap.lastBucketCount n
 
     let sweepKs =
+        match args.Ks with
+        | Some ks -> ks
+        | None ->
         if args.Churn then
             (mkSweep n |> List.filter (fun k -> k <= n / 10)) @ [ n / 10 ]
             |> List.distinct

@@ -23,17 +23,17 @@
  0:       Skipped loading native dependencies for System.Private.Xml.Linq, Version=8.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51
  0:       Skipped loading native dependencies for System.Private.Xml, Version=8.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51
  0:       Unpacking native dependencies for Aardvark.Rendering.Vulkan, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
- 0:         Output directory: /home/schorsch/.local/share/Aardvark/Cache/Native/Aardvark.Rendering.Vulkan/7a4d0225-bed5-cf78-f38a-c5b0088e472f/linux/AMD64
+ 0:         Output directory: /home/schorsch/.local/share/Aardvark/Cache/Native/Aardvark.Rendering.Vulkan/bfd8bc66-5147-e213-b943-895ea9bcda46/linux/AMD64
  0:         Found: libvkvm.so
  0:         Skipped loading native dependencies for System.Text.RegularExpressions, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
- 0:     Loading native dependencies for Aardvark.Rendering.Vulkan, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null 0.022 s
+ 0:     Loading native dependencies for Aardvark.Rendering.Vulkan, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null 0.024 s
  0:     Skipped loading native dependencies for System.Console, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:     Skipped loading native dependencies for System.Runtime.Loader, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:     Skipped loading native dependencies for System.Threading, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:     Skipped loading native dependencies for System.Threading.Thread, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:     Skipped loading native dependencies for System.Runtime.InteropServices, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:     Skipped loading native dependencies for Microsoft.Win32.Primitives, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
- 0:   Loading native dependencies ................................................ [0.52x] 0.042 s
+ 0:   Loading native dependencies ................................................ [0.53x] 0.046 s
  0:   Loading plugins ............................................................................
  0:     Finding and loading assemblies ...........................................................
  0:       Skipped loading native dependencies for System.Runtime.Serialization.Xml, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
@@ -49,7 +49,6 @@
  0:       Skipped loading native dependencies for System.Reflection.Primitives, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:       Loaded plugins cache file: /home/schorsch/.local/share/Aardvark/Cache/Plugins/Bench_1.0.0.0_plugins.xml
  0:       [IsPlugin] Ignoring assembly Microsoft.DotNet.PlatformAbstractions due to filter
- 0:       [IsPlugin] Ignoring assembly Microsoft.Bcl.AsyncInterfaces due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Rendering.Vulkan.Wrapper.dll
  0:       [IsPlugin] Ignoring assembly FShade.SpirV due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Rendering.dll
@@ -58,9 +57,7 @@
  0:       [IsPlugin] Plugin found: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.PixImage.ImageSharp.dll
  0:       [IsPlugin] Ignoring assembly FSharp.Data.Adaptive due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Application.Slim.dll
- 0:       [IsPlugin] Ignoring assembly Microsoft.Bcl.HashCode due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Silk.NET.GLFW.dll
- 0:       [IsPlugin] Ignoring assembly System.Text.Encodings.Web due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.Incremental.dll
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.Tensors.CSharp.dll
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.Essentials.dll
@@ -71,7 +68,6 @@
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Geometry.dll
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.Telemetry.dll
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Silk.NET.Core.dll
- 0:       [IsPlugin] Ignoring assembly System.IO.Pipelines due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.FSharp.dll
  0:       [IsPlugin] Plugin found: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.FSharp.dll
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.TypeProviders.dll
@@ -82,15 +78,17 @@
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.SceneGraph.dll
  0:       [IsPlugin] Ignoring assembly FShade.Imperative due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/FSharp.Core.dll
- 0:       [IsPlugin] Ignoring assembly System.Text.Json due to filter
  0:       [IsPlugin] Ignoring assembly LibTessDotNet due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Application.dll
  0:       [IsPlugin] Ignoring assembly FsPickler due to filter
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Base.dll
  0:       [IsPlugin] Ignoring assembly FShade.Core due to filter
- 0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Bench.dll
+ 0:       [IsPlugin] Retrying to load because cache is outdated: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Bench.dll
+ 0:       Skipped loading native dependencies for System.Reflection.Metadata, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
+ 0:       Skipped loading native dependencies for System.Collections.Immutable, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
+ 0:       Skipped loading native dependencies for System.IO.MemoryMappedFiles, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:       [IsPlugin] Cache found for: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Aardvark.Application.Slim.Vulkan.dll
- 0:     Finding and loading assemblies ................................................... 0.033 s
+ 0:     Finding and loading assemblies ................................................... 0.046 s
  0:     Enumerating assemblies for introspection .................................................
  0:       [Introspection] Entry assembly: Bench, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null (path: /home/schorsch/projects/aardvark-cad-bench/dotnet/bin/Release/net8.0/Bench.dll)
  0:       [Introspection] Ignoring assembly System.Runtime due to filter
@@ -216,16 +214,16 @@
  0:       Loading native dependencies for GLSLangSharp, Version=0.5.0.0, Culture=neutral, PublicKeyToken=null 0.000 s
  0:       [Introspection] Ignoring assembly netstandard due to filter
  0:       [Introspection] Ignoring assembly FSharp.Data.Adaptive due to filter
- 0:     Enumerating assemblies for introspection ................................. [0.00x] 0.044 s
+ 0:     Enumerating assemblies for introspection ................................. [0.01x] 0.014 s
  0:     [cache hit ] Aardvark.PixImage.ImageSharp, Version=3.0.0.0, Culture=neutral, PublicKeyToken=null
  0:     Initializing PixImageSharp ...............................................................
  0:       Skipped loading native dependencies for SixLabors.ImageSharp, Version=3.0.0.0, Culture=neutral, PublicKeyToken=d998eea7b14cab13
  0:       Skipped loading native dependencies for System.Numerics.Vectors, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
- 0:     Initializing PixImageSharp ....................................................... 0.014 s
+ 0:     Initializing PixImageSharp ....................................................... 0.015 s
  0:     [cache hit ] Aardvark.Base.FSharp, Version=5.3.0.0, Culture=neutral, PublicKeyToken=null
  0:     Initializing CustomPicklerProvider .......................................................
  0:       Skipped loading native dependencies for FsPickler, Version=5.3.2.0, Culture=neutral, PublicKeyToken=null
- 0:       [cache hit ] Bench, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+ 0:       [cache miss] Bench, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
  0:       [cache hit ] FSharp.Core, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:       [cache hit ] Aardvark.Rendering, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
  0:       [cache hit ] Aardvark.Base.FSharp, Version=5.3.0.0, Culture=neutral, PublicKeyToken=null
@@ -249,11 +247,11 @@
  0:       [cache hit ] Aardvark.Rendering.Vulkan.Wrapper, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
  0:       [cache hit ] GLSLangSharp, Version=0.5.0.0, Culture=neutral, PublicKeyToken=null
  0:       installing pickler: Aardvark.Base.Picklers.AdaptivePicklers
- 0:     Initializing CustomPicklerProvider ............................................... 0.020 s
- 0:   Loading plugins ............................................................ [0.64x] 0.121 s
- 0: Initializing Aardvark ........................................................ [0.97x] 0.168 s
+ 0:     Initializing CustomPicklerProvider ............................................... 0.035 s
+ 0:   Loading plugins ............................................................ [0.50x] 0.122 s
+ 0: Initializing Aardvark ........................................................ [0.97x] 0.173 s
  0: Skipped loading native dependencies for FShade.Imperative, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
- 0: model=synthetic n=20000 frames=60 warmup=20 size=1024 heap=true
+ 0: model=synthetic n=20000 frames=300 warmup=50 size=1024 heap=true
  0: [Vulkan] Loading global functions ............................................................
  0:   Loading native library 'vulkan.1'
  0:     Assembly: Aardvark.Rendering.Vulkan.Wrapper, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
@@ -273,10 +271,10 @@
  1: Skipped loading native dependencies for System.Net.Primitives, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  2: Skipped loading native dependencies for System.Net.Sockets, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  1: Skipped loading native dependencies for System.Threading.ThreadPool, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
- 2: Skipped loading native dependencies for System.Diagnostics.Tracing, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
+ 1: Skipped loading native dependencies for System.Diagnostics.Tracing, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:         /usr/sbin/ldconfig -p - success
  0:         Found 2821 libraries
- 0:       Building shared library location cache ......................................... 0.037 s
+ 0:       Building shared library location cache ......................................... 0.041 s
  0:   Loading native library 'vulkan.1' - failed
  0:   Loading native library 'vulkan'
  0:     Assembly: Aardvark.Rendering.Vulkan.Wrapper, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
@@ -288,7 +286,7 @@
  0:       Failed to load: vulkan.so
  0:       Loaded: libvulkan.so
  0:   Loading native library 'vulkan' - success
- 0: [Vulkan] Loading global functions .................................................... 0.047 s
+ 0: [Vulkan] Loading global functions .................................................... 0.052 s
  0: [Vulkan] enabled instance extension "VK_EXT_swapchain_colorspace"
  0: [Vulkan] enabled instance extension "VK_KHR_portability_enumeration"
  0: [Vulkan] enabled instance extension "VK_KHR_xcb_surface"
@@ -300,7 +298,7 @@
  0: [Vulkan] enabled instance extension "VK_KHR_external_memory_capabilities"
  0: [Vulkan] enabled instance extension "VK_KHR_external_fence_capabilities"
  0: [Vulkan] enabled instance extension "VK_EXT_headless_surface"
- 0: [Vulkan] Loading instance functions .................................................. 0.009 s
+ 0: [Vulkan] Loading instance functions .................................................. 0.010 s
  0: instance:
  0:   layers:
  0:     VK_LAYER_INTEL_nullhw (v1.1.73) ( )
@@ -905,7 +903,7 @@
  0:           viewports:
  0:             max count:      16
  0:             max size:       [32768, 32768]
- 0:             Skipped loading native dependencies for System.Text.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51
+ 0:             Skipped loading native dependencies for System.Text.Json, Version=8.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51
  0:             bounds:         [[-65536, -65536], [65536, 65536]]
  0:             subpixel bits:  8
  0:         rasterizer:
@@ -1013,23 +1011,23 @@
  0: [Vulkan] enabled device extension "VK_EXT_descriptor_indexing"
  0: [Vulkan] enabled device extension "VK_EXT_device_fault"
  0: [Vulkan] enabled device extension "VK_EXT_conservative_rasterization"
- 0: [Vulkan] Loading device functions .................................................... 0.052 s
+ 0: [Vulkan] Loading device functions .................................................... 0.055 s
  0: Resolving native library 'vkvm'
  0:   Loading native library 'vkvm'
  0:     Assembly: Aardvark.Rendering.Vulkan.Wrapper, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
  0:     Looking up in cache
  0:     Searching library directories
- 0:       Loaded: /home/schorsch/.local/share/Aardvark/Cache/Native/Aardvark.Rendering.Vulkan/7a4d0225-bed5-cf78-f38a-c5b0088e472f/linux/AMD64/libvkvm.so
+ 0:       Loaded: /home/schorsch/.local/share/Aardvark/Cache/Native/Aardvark.Rendering.Vulkan/bfd8bc66-5147-e213-b943-895ea9bcda46/linux/AMD64/libvkvm.so
  0:   Loading native library 'vkvm' - success
  0: [Vulkan] Deserializing pipeline cache '/home/schorsch/.local/share/Aardvark/Cache/Pipelines/Bench_a19e7b66-9a0c-6a68-4dea-a2222f9bea87.pipeline_cache' 
  0:   Skipped loading native dependencies for System.Reflection, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:   Skipped loading native dependencies for System.Runtime.Numerics, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:   Skipped loading native dependencies for System.Globalization, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:   Skipped loading native dependencies for System.Runtime.Serialization.Formatters, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
- 0: [Vulkan] Deserializing pipeline cache '/home/schorsch/.local/share/Aardvark/Cache/Pipelines/Bench_a19e7b66-9a0c-6a68-4dea-a2222f9bea87.pipeline_cache' - success 0.124 s
+ 0: [Vulkan] Deserializing pipeline cache '/home/schorsch/.local/share/Aardvark/Cache/Pipelines/Bench_a19e7b66-9a0c-6a68-4dea-a2222f9bea87.pipeline_cache' - success 0.113 s
  0: Skipped loading native dependencies for System.Collections.NonGeneric, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0: Skipped loading native dependencies for Microsoft.DotNet.PlatformAbstractions, Version=3.1.6.0, Culture=neutral, PublicKeyToken=adb9793829ddae60
- 0: Skipped loading native dependencies for Microsoft.Extensions.DependencyModel, Version=9.0.0.10, Culture=neutral, PublicKeyToken=adb9793829ddae60
+ 0: Skipped loading native dependencies for Microsoft.Extensions.DependencyModel, Version=8.0.0.0, Culture=neutral, PublicKeyToken=adb9793829ddae60
  0: Skipped loading native dependencies for System.Diagnostics.StackTrace, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0: Skipped loading native dependencies for FShade.GLSL, Version=5.7.0.0, Culture=neutral, PublicKeyToken=null
  0: Resolving native library 'GLSLangNative'
@@ -1040,21 +1038,15 @@
  0:       Loaded: /home/schorsch/.local/share/Aardvark/Cache/Native/GLSLangSharp/9519df10-2419-ea45-7458-760a7473964d/linux/AMD64/libGLSLangNative.so
  0:   Loading native library 'GLSLangNative' - success
  0: [Vulkan] using 1 descriptor pools
- 0: first frame (compile+upload): 2396 ms
+ 0: first frame (compile+upload): 2530 ms
  0: heap buckets: 1 (of 20000 ROs)
  0: k=1 done
- 0: wrote /tmp/cad-trafo.csv
- 0: Trying to save image to file '/tmp/cad-trafo.png' with ImageSharp loader .....................
- 0:   Skipped loading native dependencies for System. 0: k=3000 done
- 0: k=5000 done
- 0: k=7000 done
- 0: k=10000 done
- 0: wrote ../results/talk/v0007/churn-dense-n20000.csv
- 0: Trying to save image to file '../results/talk/v0007/churn-dense-n20000.png' with ImageSharp loader 
+ 0: wrote /tmp/churn-0008c.csv
+ 0: Trying to save image to file '/tmp/churn-0008c.png' with ImageSharp loader ...................
  0:   Skipped loading native dependencies for System.Runtime.CompilerServices.Unsafe, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
  0:   Skipped loading native dependencies for System.Runtime.Intrinsics, Version=8.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51
- 0: Trying to save image to file '../results/talk/v0007/churn-dense-n20000.png' with ImageSharp loader: success in 0.157 s
- 0: wrote ../results/talk/v0007/churn-dense-n20000.png
+ 0: Trying to save image to file '/tmp/churn-0008c.png' with ImageSharp loader: success in 0.139 s
+ 0: wrote /tmp/churn-0008c.png
  0: [Vulkan] using 0 descriptor pools
  0: [Vulkan] Serializing pipeline cache '/home/schorsch/.local/share/Aardvark/Cache/Pipelines/Bench_a19e7b66-9a0c-6a68-4dea-a2222f9bea87.pipeline_cache' - success 0.002 s
  0: [Vulkan] Unloading device functions

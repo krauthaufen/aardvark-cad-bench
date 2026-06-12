@@ -260,37 +260,33 @@ role). Sweep r = 1 … n/10, n = 20 000.
 
 Results (medians, frame / edit ms):
 
-| r | web (wombat) | .NET Vulkan classic | .NET Vulkan heap |
-|---:|---:|---:|---:|
-| 1 | 5.3 / 0.1 | 21.8 / 0.0 | 359 / 0.0 |
-| 100 | 30.3 / 2.7 | 73.3 / 0.4 | 426 / 0.4 |
-| 1 000 | 297 / 28 | 1 381 / 19 | 412 / 3.1 |
-| 2 000 | 603 / 59 | 1 674 / 29 | 385 / 14 |
-| marginal µs per add+remove pair | ~300 | ~830 | ~12 |
+| r | web (wombat) | .NET Vulkan classic | .NET Vulkan heap (≥0003) | heap @0002 |
+|---:|---:|---:|---:|---:|
+| 1 | 5.3 / 0.1 | 21.8 / 0.0 | **1.45** / 0.1 | 359 |
+| 100 | 30.3 / 2.7 | 73.3 / 0.4 | 4.1 / 0.8 | 426 |
+| 1 000 | 297 / 28 | 1 381 / 19 | 24.5 / 2.8 | 412 |
+| 2 000 | 603 / 59 | 1 674 / 29 | 50.0 / 12.9 | 385 |
+| marginal µs / add+remove pair | ~300 | ~830 | **~25** | (flat) |
 
-Three completely different structural-cost shapes:
+Structural-cost shapes:
 
+- **.NET heap**: with `5.7.0-prerelease0002` the wrapper re-bucketed
+  from scratch on ANY set delta (`AVal.custom` over the whole RO-set
+  snapshot) — a FLAT ~360 ms at every r including r = 1: literally
+  the "everything, all the time" failure mode appearing inside our
+  own stack the moment one layer drops incrementality. **Fixed in
+  `5.7.0-prerelease0003`** (persistent per-bucket caches: slot
+  freelist + tombstones, refcounted arena regions, stable bucket-RO
+  identity, delta-based updater): r = 1 → **1.45 ms** (250×), linear
+  ~25 µs/pair end-to-end, GPU flat at 0.14–0.18 ms. Now the best
+  structural-churn shape of the three.
 - **wombat (web)**: properly incremental — base 5.3 ms, ~300 µs per
   add+remove pair (≈30× a trafo edit; draw-record add/remove + arena
   alloc/release + bucket bookkeeping per changed object).
 - **.NET classic**: incremental but expensive — ~830 µs/pair,
   dominated by per-RO Vulkan prepare/dispose (descriptor sets,
-  uniform buffers). This is the steady-state echo of the 55 s
-  first-frame compile.
-- **.NET heap (5.7 prerelease)**: ~FLAT 360–430 ms at EVERY r,
-  including r = 1 — `Heap.ofRenderObjects` re-buckets from scratch on
-  any set delta (an `AVal.custom` over the whole RO-set snapshot), so
-  one add/remove costs a full 20 k-object re-ingestion (~18 µs/RO).
-  Its *marginal* cost (~12 µs/pair) shows how cheap the underlying
-  arena add/remove is — the `HeapScene` API is incremental (the
-  HeapSpike demo churns live); the RO-level wrapper just doesn't use
-  that incrementality yet. Crossover vs classic sits at r ≈ 430.
-
-Honest summary: for structural churn the browser engine currently has
-the best shape (incremental, smallest constant), classic pays ~1 ms
-per object turned over, and the .NET heap wrapper turns any structural
-edit into "everything, all the time" until its delta path lands —
-the exact failure mode this benchmark exists to make visible.
+  uniform buffers). The steady-state echo of the 55 s first-frame
+  compile.
 
 ## Status / caveats (v1)
 

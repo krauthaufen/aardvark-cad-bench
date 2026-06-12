@@ -11,9 +11,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aardvark.Application.Slim.Vulkan" Version="5.7.0-prerelease0002" />
+    <PackageReference Include="Aardvark.Application.Slim.Vulkan" Version="5.7.0-prerelease0003" />
     <PackageReference Include="Aardvark.PixImage.ImageSharp" Version="3.0.2" />
-    <PackageReference Include="Aardvark.SceneGraph" Version="5.7.0-prerelease0002" />
+    <PackageReference Include="Aardvark.SceneGraph" Version="5.7.0-prerelease0003" />
   </ItemGroup>
 
 </Project>

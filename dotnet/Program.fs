@@ -12,7 +12,7 @@ module CadBench.Program
 // rAF delta.
 //
 // --heap activates the 5.7-prerelease HEAP renderer
-// (HeapConfig.Enabled + Heap.ofRenderObjects): the N per-part render
+// (Heap.ofRenderObjects): the N per-part render
 // objects collapse into one bucket per effect, drawn as a single
 // indirect multidraw against a shared arena through the auto-rewritten
 // shader — the .NET equivalent of the wombat/WebGPU heap path.
@@ -37,7 +37,7 @@ open Aardvark.SceneGraph
 open FShade
 
 // ─── Shaders (HeapSpike pattern: per-draw uniforms by name; the heap
-//     rewrite redirects exactly the names passed to ofRenderObjects) ──
+//     rewrite redirects the auto-detected per-draw field names) ──
 
 module Shaders =
     type Vertex =
@@ -226,7 +226,6 @@ let private mkSweep (n: int) =
 let main argv =
     Aardvark.Init()
     let args = parseArgs argv
-    if args.Heap then HeapConfig.Enabled <- true
 
     let assembly =
         match args.Model with
@@ -307,7 +306,7 @@ let main argv =
             | Some s -> s :> aset<IRenderObject>
             | None -> ASet.ofArray ros
         if args.Heap then
-            Heap.ofRenderObjects runtime (Set.ofList [ "HeapModelTrafo"; "HeapColor" ]) set
+            Heap.ofRenderObjects runtime set
         else set
 
     // offscreen FBO — no window, no swapchain, no Aardium blit
